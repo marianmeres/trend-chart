@@ -1,15 +1,24 @@
 {
 	"name": "@marianmeres/trend-chart",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"exports": "./src/mod.ts",
 	"compilerOptions": {
-		"lib": ["dom", "dom.iterable", "deno.ns"]
+		"lib": [
+			"dom",
+			"dom.iterable",
+			"deno.ns"
+		]
 	},
 	"publish": {
-		"exclude": ["example", "tmp"]
+		"exclude": [
+			"example",
+			"tmp"
+		]
 	},
 	"lint": {
-		"exclude": ["example/dist"]
+		"exclude": [
+			"example/dist"
+		]
 	},
 	"tasks": {
 		"test": "deno test",
