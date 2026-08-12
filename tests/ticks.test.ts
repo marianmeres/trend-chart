@@ -35,6 +35,22 @@ Deno.test("niceTicks: zero-span domain is padded, not crashed", () => {
 	assert(t[0] < 5 && t[t.length - 1] > 5);
 });
 
+Deno.test("niceTicks terminates when the step is below the domain's float resolution", () => {
+	// these hang forever under an accumulating `v += step` loop (min + step === min),
+	// so a regression here shows up as a stuck test run rather than a failed assert
+	const t1 = niceTicks([1e15, 1e15 + 0.125], 5);
+	assert(t1.length > 0 && t1.length < 1000);
+	const t2 = niceTicks([1.7e18, 1.7e18 + 300], 5);
+	assert(t2.length > 0 && t2.length < 1000);
+});
+
+Deno.test("niceTicks output length stays bounded for hostile tick counts", () => {
+	for (const count of [1e6, 1e9, Number.MAX_SAFE_INTEGER, Infinity, NaN, -5, 0]) {
+		const t = niceTicks([0, 100], count);
+		assert(t.length >= 1 && t.length <= 1001, `count ${count} → ${t.length} ticks`);
+	}
+});
+
 Deno.test("niceDomain expands outward to nice bounds", () => {
 	const [min, max, step] = niceDomain([15, 65], 5);
 	assertEquals([min, max, step], [10, 70, 10]);
