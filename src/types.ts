@@ -1,5 +1,11 @@
 /** A single data sample. `x` must be numeric (timestamp in ms, index, ...) and
- * monotonically non-decreasing across the dataset. */
+ * monotonically non-decreasing across the dataset.
+ *
+ * Samples with a non-finite `x` or `y` (`NaN`, `±Infinity`) are **dropped** —
+ * the line simply bridges the gap with a straight segment, and the axes are
+ * fitted to the remaining samples. Indices reported by
+ * {@link PointEvent.index} / {@link ScenePoint.index} stay indices into the
+ * dataset you passed in, gaps included. */
 export interface DataPoint {
 	/** Position on the x axis (timestamp in ms, index, ... — the semantics are
 	 * the host's business). */

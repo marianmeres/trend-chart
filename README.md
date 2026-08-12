@@ -52,6 +52,9 @@ size of its own (a `div` with no height renders nothing). Pan by dragging,
 zoom with the mouse wheel or pinch — both enabled by default, disable with
 `{ pan: false, zoom: false }`.
 
+Gappy data is fine: samples whose `x` or `y` is `NaN` or `±Infinity` are
+dropped and the line bridges the gap: no truncated render, no distorted axes.
+
 ### Sparkline
 
 A plain `number[]` works as data (index becomes `x`):
