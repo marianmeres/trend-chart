@@ -24,7 +24,7 @@ Branch: `fix/sprint-1-landmines`
 | # | Task                                                                                | Source                             | Status | Commit    |
 | - | ----------------------------------------------------------------------------------- | ---------------------------------- | ------ | --------- |
 | 1 | `niceTicks()` terminates — index-based loop + bounded-length regression test        | [01](./01-core-math.md) #1         | ✅     | `b032e68` |
-| 2 | Escape the 3 unescaped color sinks in `sceneToString()` (+ single `color()` helper) | [04](./04-ssr-and-parity.md) #1    | ⬜     | —         |
+| 2 | Escape the 3 unescaped color sinks in `sceneToString()` (+ single `color()` helper) | [04](./04-ssr-and-parity.md) #1    | ✅     | `b28182a` |
 | 3 | Zone gradient: edge-aware top stop when `domainY[1]` equals a boundary              | [01](./01-core-math.md) #2         | ⬜     | —         |
 | 4 | Single-pass tick derivation (`ticksForStep`) so the axis bound gets a label         | [01](./01-core-math.md) #3         | ⬜     | —         |
 | 5 | Non-finite sample policy — drop non-finite points, preserve `ScenePoint.index`      | [02](./02-scene-composition.md) #1 | ⬜     | —         |
@@ -101,7 +101,7 @@ Branch: `fix/sprint-4-decisions`
 | 22 | `"auto"` y-domain: fit strictly in-domain points, or keep the overscan fit and document it  | [02](./02-scene-composition.md) #6 | ⏸️     | —      |
 | 23 | `overscan: 2` when `smooth` is on (regenerate `tmp/previews.ts` references first)           | [02](./02-scene-composition.md) #5 | ⬜     | —      |
 | 24 | Docs sync pass: `README.md` + `API.md` + `types.ts` JSDoc for every behavior changed above  | —                                  | ⬜     | —      |
-| 25 | `build-npm.ts`: pass `[]` instead of `[""]` to `versionizeDeps`                             | [06](./06-tests-and-tooling.md) #5 | ⬜     | —      |
+| 25 | `build-npm.ts`: pass `[]` instead of `[""]` to `versionizeDeps`                             | [06](./06-tests-and-tooling.md) #5 | ✅     | —      |
 
 **Sequencing:** task 24 last within the sprint — it documents the outcome of 21 and 22. Note
 task 24 is a hard gate for any release: `AGENTS.md` requires that a changed option be updated in
@@ -137,6 +137,13 @@ all four places (`types.ts` JSDoc, `API.md` table, README, `example/index.html` 
   engages for absurd `targetCount` values (≥ ~1e4 on a normal domain), where the alternative was
   an OOM-sized array. `ticksForStep` was deliberately **not** extracted yet — that is task 4,
   where the export question gets decided.
+- **2026-08-12** — Task 2: the `color()` helper is applied at **every** color sink in
+  `sceneToString()`, not only the three unescaped ones — the already-safe sites (gradient
+  stops, band fill/label, grid stroke, label fill) go through it too, so "is this sink
+  escaped?" is never a per-site judgement call again. Escaping (not allowlist validation)
+  is the chosen level: an allowlist would reject legitimate `color-mix()`/`lab()`/`var()`
+  values. `Scene.class` / `cssVar()` / offset precision from the same doc stay in Sprint 3
+  task 14.
 
 ---
 
