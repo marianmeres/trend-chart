@@ -16,6 +16,13 @@ function esc(s: string): string {
 		.replaceAll('"', "&quot;");
 }
 
+/** Escape a resolved color before it is interpolated into a `style` attribute.
+ * Colors come from user options (`lineColor`, `zones.colors`, `endDot.color`, …)
+ * so they are markup sinks like any other string — route every one through here. */
+function color(c: string): string {
+	return esc(c);
+}
+
 /** Round to 2 decimals to keep the markup compact. */
 function n(v: number): number {
 	return Math.round(v * 100) / 100;
@@ -25,8 +32,8 @@ const FONT_FAMILY = "ui-sans-serif, system-ui, sans-serif";
 
 /** Inline `style` for axis/tick labels. */
 function textStyle(scene: Scene): string {
-	const color = cssColor("label", "#9ca3af", scene.cssVars);
-	return `fill:${color};font-family:${FONT_FAMILY};font-size:${scene.fontSize}px`;
+	const fill = color(cssColor("label", "#9ca3af", scene.cssVars));
+	return `fill:${fill};font-family:${FONT_FAMILY};font-size:${scene.fontSize}px`;
 }
 
 /** `<linearGradient>` element for a scene gradient. */
@@ -35,18 +42,22 @@ function gradientMarkup(g: SceneGradient): string {
 		.map((s) => {
 			const op = s.opacity === undefined ? "" : `;stop-opacity:${s.opacity}`;
 			return `<stop offset="${n(s.offset)}" style="stop-color:${
-				esc(s.color)
+				color(s.color)
 			}${op}"/>`;
 		})
 		.join("");
-	return `<linearGradient id="${g.id}" gradientUnits="userSpaceOnUse" ` +
-		`x1="0" y1="${n(g.y1)}" x2="0" y2="${n(g.y2)}">${stops}</linearGradient>`;
+	return (
+		`<linearGradient id="${g.id}" gradientUnits="userSpaceOnUse" ` +
+		`x1="0" y1="${n(g.y1)}" x2="0" y2="${n(g.y2)}">${stops}</linearGradient>`
+	);
 }
 
 /** `<text>` element for a positioned scene label. */
 function textMarkup(t: SceneText, style: string): string {
-	return `<text x="${n(t.x)}" y="${n(t.y)}" text-anchor="${t.anchor}" ` +
-		`style="${style}">${esc(t.text)}</text>`;
+	return (
+		`<text x="${n(t.x)}" y="${n(t.y)}" text-anchor="${t.anchor}" ` +
+		`style="${style}">${esc(t.text)}</text>`
+	);
 }
 
 /** Serialize a computed {@link Scene} to static SVG markup. */
@@ -81,15 +92,17 @@ export function sceneToString(scene: Scene): string {
 			out.push(
 				`<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.width)}" ` +
 					`height="${n(b.height)}" style="fill:${
-						esc(b.color)
+						color(b.color)
 					};opacity:${b.opacity}"/>`,
 			);
 			if (b.label) {
-				out.push(textMarkup(
-					b.label,
-					`fill:${esc(b.color)};opacity:0.8;` +
-						`font-family:${FONT_FAMILY};font-size:${scene.fontSize}px`,
-				));
+				out.push(
+					textMarkup(
+						b.label,
+						`fill:${color(b.color)};opacity:0.8;` +
+							`font-family:${FONT_FAMILY};font-size:${scene.fontSize}px`,
+					),
+				);
 			}
 		}
 		out.push(`</g>`);
@@ -97,7 +110,7 @@ export function sceneToString(scene: Scene): string {
 
 	// grid
 	if (scene.grid.length) {
-		const stroke = cssColor("grid", "#e5e7eb", scene.cssVars);
+		const stroke = color(cssColor("grid", "#e5e7eb", scene.cssVars));
 		out.push(`<g class="trend-chart-grid" shape-rendering="crispEdges">`);
 		for (const l of scene.grid) {
 			out.push(
@@ -119,7 +132,7 @@ export function sceneToString(scene: Scene): string {
 	if (scene.linePath) {
 		const stroke = scene.strokeGradient
 			? `url(#${scene.strokeGradient.id})`
-			: scene.lineColor;
+			: color(scene.lineColor);
 		out.push(
 			`<path class="trend-chart-line" d="${scene.linePath}" ` +
 				`style="fill:none;stroke:${stroke};stroke-width:${scene.lineWidth}px;` +
@@ -129,7 +142,7 @@ export function sceneToString(scene: Scene): string {
 	for (const m of scene.markers) {
 		out.push(
 			`<circle class="trend-chart-marker" cx="${n(m.px)}" cy="${n(m.py)}" ` +
-				`r="${scene.pointRadius}" style="fill:${scene.lineColor}"/>`,
+				`r="${scene.pointRadius}" style="fill:${color(scene.lineColor)}"/>`,
 		);
 	}
 	out.push(`</g>`);
@@ -139,7 +152,9 @@ export function sceneToString(scene: Scene): string {
 		const d = scene.endDot;
 		out.push(
 			`<circle class="trend-chart-end-dot" cx="${n(d.px)}" cy="${n(d.py)}" ` +
-				`r="${d.r}" style="fill:${d.color};stroke:${d.ringColor};stroke-width:2"/>`,
+				`r="${d.r}" style="fill:${color(d.color)};stroke:${
+					color(d.ringColor)
+				};stroke-width:2"/>`,
 		);
 	}
 

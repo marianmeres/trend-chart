@@ -84,3 +84,40 @@ Deno.test("renderToString: empty data still yields valid svg", () => {
 	assert(svg.startsWith("<svg "));
 	assertEquals(svg.includes("trend-chart-line"), false);
 });
+
+Deno.test("renderToString: escapes color options into style attributes", () => {
+	const evil = `"><script>alert(1)</script>`;
+	const svg = renderToString([1, 2, 3], {
+		width: 300,
+		height: 100,
+		lineColor: evil,
+		points: "all",
+		endDot: { color: evil, ringColor: evil },
+	});
+	// nothing after the opening tag may introduce live markup
+	assertEquals(svg.slice(svg.indexOf(">") + 1).includes("<script"), false);
+	assertEquals(svg.includes(evil), false);
+	// all three sinks are present and escaped
+	assertStringIncludes(svg, "stroke:&quot;&gt;&lt;script&gt;");
+	assertStringIncludes(svg, `class="trend-chart-marker"`);
+	assertStringIncludes(svg, "fill:&quot;&gt;&lt;script&gt;");
+	assertStringIncludes(
+		svg,
+		`style="fill:&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;;` +
+			`stroke:&quot;&gt;&lt;script&gt;alert(1)&lt;/script&gt;;stroke-width:2"`,
+	);
+});
+
+Deno.test("renderToString: escapes zone colors", () => {
+	const svg = renderToString([{ x: 0, y: 60 }, { x: 1, y: 120 }], {
+		width: 300,
+		height: 100,
+		zones: {
+			boundaries: [50, 100, 150],
+			colors: [`"><b>`, "#a00"],
+			labels: ["lo", "hi"],
+		},
+	});
+	assertEquals(svg.includes(`"><b>`), false);
+	assertStringIncludes(svg, "&quot;&gt;&lt;b&gt;");
+});

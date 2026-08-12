@@ -16,7 +16,13 @@ import {
 	scaleY,
 } from "./scale.ts";
 import { buildAreaPath, buildLinePath, visibleSlice } from "./path.ts";
-import { niceDomain, niceTicks, resolveXTicks, sampleTicks } from "./ticks.ts";
+import {
+	niceDomain,
+	niceTicks,
+	resolveXTicks,
+	sampleTicks,
+	ticksForStep,
+} from "./ticks.ts";
 import { zoneBands, zoneGradientStops } from "./zones.ts";
 
 /** Sizing/identity context the caller (DOM chart or string renderer) provides. */
@@ -43,6 +49,37 @@ export function normalizeData(data: TrendData): DataPoint[] {
 	return data as DataPoint[];
 }
 
+/** Samples with a non-finite `x` or `y` dropped, plus a map from each kept
+ * position back to its index in the caller's dataset (`null` when nothing was
+ * dropped, so the common case neither copies the data nor remaps indices).
+ *
+ * A non-finite coordinate would reach the path `d` attribute verbatim, and per
+ * the SVG spec a path stops rendering at the first erroneous command — so a
+ * single `NaN` sample silently truncates the line while the axes, which are
+ * incidentally non-finite-tolerant, still look perfectly correct. */
+function finiteSamples(
+	points: DataPoint[],
+): { points: DataPoint[]; indices: number[] | null } {
+	let allFinite = true;
+	for (const p of points) {
+		if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+			allFinite = false;
+			break;
+		}
+	}
+	if (allFinite) return { points, indices: null };
+	const kept: DataPoint[] = [];
+	const indices: number[] = [];
+	for (let i = 0; i < points.length; i++) {
+		const p = points[i];
+		if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+			kept.push(p);
+			indices.push(i);
+		}
+	}
+	return { points: kept, indices };
+}
+
 /** Wrap a resolved color in a themable CSS custom property reference. */
 export function cssColor(name: string, fallback: string, useVars: boolean): string {
 	return useVars ? `var(--trend-chart-${name}, ${fallback})` : fallback;
@@ -65,7 +102,9 @@ export function computeScene(
 	options: TrendChartOptions = {},
 	ctx: SceneContext,
 ): Scene {
-	const points = normalizeData(data);
+	// non-finite samples are dropped (see finiteSamples); `srcIndex` maps the
+	// survivors back to the caller's dataset indices
+	const { points, indices: srcIndex } = finiteSamples(normalizeData(data));
 	const idPrefix = ctx.idPrefix ?? "tc";
 	const cssVars = ctx.cssVars ?? false;
 
@@ -95,13 +134,19 @@ export function computeScene(
 	const { points: slice, startIndex } = visibleSlice(points, domainX);
 
 	let domainY: [number, number];
+	// the `[min, max, step]` triple the y domain was derived from, kept in scope so
+	// the ticks land on the very same lattice. Re-deriving them with a second
+	// `niceDomain()` pass over the already-expanded domain can pick a coarser step
+	// whose ticks miss the bound the chart expanded to, leaving it unlabeled.
+	let yNice: [number, number, number] | null = null;
 	const domainYOpt = options.domainY ?? (options.zones ? "full" : "auto");
 	if (Array.isArray(domainYOpt)) {
 		domainY = domainYOpt;
 	} else {
 		const raw = dataRangeY(domainYOpt === "full" ? points : slice);
 		if (yAxis || grid) {
-			const [min, max] = niceDomain(raw, yTickCount);
+			const [min, max, step] = niceDomain(raw, yTickCount);
+			yNice = [min, max, step];
 			domainY = [Math.min(min, raw[0]), Math.max(max, raw[1])];
 		} else {
 			// axis-less (sparkline): hug the data, tiny relative pad
@@ -120,13 +165,17 @@ export function computeScene(
 	const plot = plotRect(cfg);
 
 	// --- series geometry -------------------------------------------------
-	const visible: ScenePoint[] = slice.map((p, i) => ({
-		px: scaleX(p.x, cfg),
-		py: scaleY(p.y, cfg),
-		x: p.x,
-		y: p.y,
-		index: startIndex + i,
-	}));
+	const visible: ScenePoint[] = slice.map((p, i) => {
+		const at = startIndex + i;
+		return {
+			px: scaleX(p.x, cfg),
+			py: scaleY(p.y, cfg),
+			x: p.x,
+			y: p.y,
+			// `ScenePoint.index` is documented as an index into the FULL dataset
+			index: srcIndex ? srcIndex[at] : at,
+		};
+	});
 	const px = visible.map((p) => ({ x: p.px, y: p.py }));
 	const smooth = options.smooth ?? false;
 	const linePath = buildLinePath(px, smooth);
@@ -166,7 +215,12 @@ export function computeScene(
 	}
 
 	// --- axes / grid -------------------------------------------------------
-	const yTicks = yAxis || grid ? niceTicks(domainY, yTickCount) : [];
+	// explicit `domainY` arrays have no pass-1 step, so they still go through niceTicks
+	const yTicks = yAxis || grid
+		? (yNice && yNice[2]
+			? ticksForStep(yNice[0], yNice[1], yNice[2])
+			: niceTicks(domainY, yTickCount))
+		: [];
 	const inPlotY = yTicks.filter((v) => v >= domainY[0] && v <= domainY[1]);
 	const formatY = options.formatY ?? String;
 	const formatX = options.formatX ?? String;
@@ -227,8 +281,12 @@ export function computeScene(
 	if (options.endDot) {
 		const cfgDot = typeof options.endDot === "object" ? options.endDot : {};
 		const last = visible.length ? visible[visible.length - 1] : null;
-		// only emphasize the true end of the dataset (not a pan-window edge)
-		if (last && last.index === points.length - 1) {
+		// only emphasize the true end of the dataset (not a pan-window edge);
+		// with trailing samples dropped, the last plottable one is that end
+		const lastIndex = points.length
+			? (srcIndex ? srcIndex[srcIndex.length - 1] : points.length - 1)
+			: -1;
+		if (last && last.index === lastIndex) {
 			endDot = {
 				px: last.px,
 				py: last.py,

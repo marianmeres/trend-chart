@@ -25,5 +25,12 @@ export {
 	scaleY,
 } from "./scale.ts";
 export { buildAreaPath, buildLinePath, type PxPoint, visibleSlice } from "./path.ts";
-export { evenTicks, niceDomain, niceTicks, resolveXTicks, sampleTicks } from "./ticks.ts";
+export {
+	evenTicks,
+	niceDomain,
+	niceTicks,
+	resolveXTicks,
+	sampleTicks,
+	ticksForStep,
+} from "./ticks.ts";
 export { zoneBands, zoneColorAt, zoneGradientStops } from "./zones.ts";

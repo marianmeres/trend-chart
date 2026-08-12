@@ -97,6 +97,7 @@ The internals are exported for advanced use (custom renderers, testing):
 | `visibleSlice(points, domainX, overscan?)`    | Slice a dataset to the visible window (+1 overscan point per side).                                                                     |
 | `niceTicks(domain, targetCount?)`             | "Nice numbers" tick values (1/2/5 × 10ⁿ steps).                                                                                         |
 | `niceDomain(domain, targetCount?)`            | Expand a domain outward to nice bounds; returns `[min, max, step]`.                                                                     |
+| `ticksForStep(min, max, step)`                | Ticks at a given step covering `[min, max]` — companion to `niceDomain`'s triple.                                                       |
 | `evenTicks(domain, count)`                    | Evenly spaced values, endpoints included.                                                                                               |
 | `sampleTicks(samples, count)`                 | ~`count` evenly index-spaced real sample values (default x ticks).                                                                      |
 | `resolveXTicks(domain, plotWidth, option?)`   | Resolve an `xTicks` option to concrete values.                                                                                          |
@@ -128,6 +129,14 @@ interface DataPoint {
 
 `x` semantics are the host's business — the chart only needs numbers. Format
 labels via `formatX`/`formatY`.
+
+**Non-finite samples** (`NaN`, `±Infinity` in `x` or `y`) are dropped: the line
+bridges the gap with a straight segment and the axes fit only the remaining
+samples. Nothing else shifts — `PointEvent.index` and `ScenePoint.index` remain
+indices into the array you passed in, dropped samples included — and an
+all-non-finite dataset renders as the empty scene. (Emitting a non-finite
+coordinate instead would silently truncate the line: per the SVG spec a path
+stops rendering at the first erroneous command.)
 
 ### `TrendChartOptions`
 

@@ -162,14 +162,23 @@ function niceDomain(domain, targetCount = 5) {
         step
     ];
 }
-function niceTicks(domain, targetCount = 5) {
-    const [min, max, step] = niceDomain(domain, targetCount);
-    if (!step) return [
+function ticksForStep(min, max, step) {
+    if (!step || !Number.isFinite(step)) return [
+        min
+    ];
+    const count = Math.floor((max - min) / step + 0.5);
+    if (!Number.isFinite(count) || count < 0) return [
         min
     ];
     const out = [];
-    for(let v = min; v <= max + step / 2; v += step)out.push(snap(v, step));
+    for(let i = 0; i <= Math.min(count, 1000); i++){
+        const v = snap(min + i * step, step);
+        if (out[out.length - 1] !== v) out.push(v);
+    }
     return out;
+}
+function niceTicks(domain, targetCount = 5) {
+    return ticksForStep(...niceDomain(domain, targetCount));
 }
 function evenTicks(domain, count) {
     if (count <= 0) return [];
@@ -213,6 +222,12 @@ function zoneColorAt(zones, value) {
     while(i < boundaries.length && boundaries[i] <= value)i++;
     return colors[Math.max(0, Math.min(i - 1, colors.length - 1))];
 }
+function zoneColorBelow(zones, value) {
+    const { boundaries, colors } = zones;
+    let i = 0;
+    while(i < boundaries.length && boundaries[i] < value)i++;
+    return colors[Math.max(0, Math.min(i - 1, colors.length - 1))];
+}
 function offsetOf(value, domainY) {
     const span = domainY[1] - domainY[0];
     if (span === 0) return 0.5;
@@ -231,7 +246,7 @@ function zoneGradientStops(zones, domainY, opacity) {
             opacity
         });
     };
-    push(0, zoneColorAt(zones, domainY[1]));
+    push(0, zoneColorBelow(zones, domainY[1]));
     for(let j = boundaries.length - 1; j >= 0; j--){
         const o = offsetOf(boundaries[j], domainY);
         if (o <= 0 || o >= 1) continue;
@@ -286,6 +301,32 @@ function normalizeData(data) {
     }
     return data;
 }
+function finiteSamples(points) {
+    let allFinite = true;
+    for (const p of points){
+        if (!Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+            allFinite = false;
+            break;
+        }
+    }
+    if (allFinite) return {
+        points,
+        indices: null
+    };
+    const kept = [];
+    const indices = [];
+    for(let i = 0; i < points.length; i++){
+        const p = points[i];
+        if (Number.isFinite(p.x) && Number.isFinite(p.y)) {
+            kept.push(p);
+            indices.push(i);
+        }
+    }
+    return {
+        points: kept,
+        indices
+    };
+}
 function cssColor(name, fallback, useVars) {
     return useVars ? `var(--trend-chart-${name}, ${fallback})` : fallback;
 }
@@ -297,7 +338,7 @@ const DEFAULTS = {
     pointRadius: 3
 };
 function computeScene(data, options = {}, ctx) {
-    const points = normalizeData(data);
+    const { points, indices: srcIndex } = finiteSamples(normalizeData(data));
     const idPrefix = ctx.idPrefix ?? "tc";
     const cssVars = ctx.cssVars ?? false;
     const xAxis = options.xAxis ?? true;
@@ -319,13 +360,19 @@ function computeScene(data, options = {}, ctx) {
     const domainX = ctx.domainX ?? options.domainX ?? fullX;
     const { points: slice, startIndex } = visibleSlice(points, domainX);
     let domainY;
+    let yNice = null;
     const domainYOpt = options.domainY ?? (options.zones ? "full" : "auto");
     if (Array.isArray(domainYOpt)) {
         domainY = domainYOpt;
     } else {
         const raw = dataRangeY(domainYOpt === "full" ? points : slice);
         if (yAxis || grid) {
-            const [min, max] = niceDomain(raw, yTickCount);
+            const [min, max, step] = niceDomain(raw, yTickCount);
+            yNice = [
+                min,
+                max,
+                step
+            ];
             domainY = [
                 Math.min(min, raw[0]),
                 Math.max(max, raw[1])
@@ -346,13 +393,16 @@ function computeScene(data, options = {}, ctx) {
         domainY
     };
     const plot = plotRect(cfg);
-    const visible = slice.map((p, i)=>({
+    const visible = slice.map((p, i)=>{
+        const at = startIndex + i;
+        return {
             px: scaleX(p.x, cfg),
             py: scaleY(p.y, cfg),
             x: p.x,
             y: p.y,
-            index: startIndex + i
-        }));
+            index: srcIndex ? srcIndex[at] : at
+        };
+    });
     const px = visible.map((p)=>({
             x: p.px,
             y: p.py
@@ -400,7 +450,7 @@ function computeScene(data, options = {}, ctx) {
             ]
         };
     }
-    const yTicks = yAxis || grid ? niceTicks(domainY, yTickCount) : [];
+    const yTicks = yAxis || grid ? yNice && yNice[2] ? ticksForStep(yNice[0], yNice[1], yNice[2]) : niceTicks(domainY, yTickCount) : [];
     const inPlotY = yTicks.filter((v)=>v >= domainY[0] && v <= domainY[1]);
     const formatY = options.formatY ?? String;
     const formatX = options.formatX ?? String;
@@ -440,7 +490,8 @@ function computeScene(data, options = {}, ctx) {
     if (options.endDot) {
         const cfgDot = typeof options.endDot === "object" ? options.endDot : {};
         const last = visible.length ? visible[visible.length - 1] : null;
-        if (last && last.index === points.length - 1) {
+        const lastIndex = points.length ? srcIndex ? srcIndex[srcIndex.length - 1] : points.length - 1 : -1;
+        if (last && last.index === lastIndex) {
             endDot = {
                 px: last.px,
                 py: last.py,
@@ -939,18 +990,21 @@ class TrendChart {
 function esc(s) {
     return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
 }
+function color(c) {
+    return esc(c);
+}
 function n1(v) {
     return Math.round(v * 100) / 100;
 }
 const FONT_FAMILY1 = "ui-sans-serif, system-ui, sans-serif";
 function textStyle(scene) {
-    const color = cssColor("label", "#9ca3af", scene.cssVars);
-    return `fill:${color};font-family:${FONT_FAMILY1};font-size:${scene.fontSize}px`;
+    const fill = color(cssColor("label", "#9ca3af", scene.cssVars));
+    return `fill:${fill};font-family:${FONT_FAMILY1};font-size:${scene.fontSize}px`;
 }
 function gradientMarkup(g) {
     const stops = g.stops.map((s)=>{
         const op = s.opacity === undefined ? "" : `;stop-opacity:${s.opacity}`;
-        return `<stop offset="${n1(s.offset)}" style="stop-color:${esc(s.color)}${op}"/>`;
+        return `<stop offset="${n1(s.offset)}" style="stop-color:${color(s.color)}${op}"/>`;
     }).join("");
     return `<linearGradient id="${g.id}" gradientUnits="userSpaceOnUse" ` + `x1="0" y1="${n1(g.y1)}" x2="0" y2="${n1(g.y2)}">${stops}</linearGradient>`;
 }
@@ -970,15 +1024,15 @@ function sceneToString(scene) {
     if (scene.bands.length) {
         out.push(`<g class="trend-chart-bands">`);
         for (const b of scene.bands){
-            out.push(`<rect x="${n1(b.x)}" y="${n1(b.y)}" width="${n1(b.width)}" ` + `height="${n1(b.height)}" style="fill:${esc(b.color)};opacity:${b.opacity}"/>`);
+            out.push(`<rect x="${n1(b.x)}" y="${n1(b.y)}" width="${n1(b.width)}" ` + `height="${n1(b.height)}" style="fill:${color(b.color)};opacity:${b.opacity}"/>`);
             if (b.label) {
-                out.push(textMarkup(b.label, `fill:${esc(b.color)};opacity:0.8;` + `font-family:${FONT_FAMILY1};font-size:${scene.fontSize}px`));
+                out.push(textMarkup(b.label, `fill:${color(b.color)};opacity:0.8;` + `font-family:${FONT_FAMILY1};font-size:${scene.fontSize}px`));
             }
         }
         out.push(`</g>`);
     }
     if (scene.grid.length) {
-        const stroke = cssColor("grid", "#e5e7eb", scene.cssVars);
+        const stroke = color(cssColor("grid", "#e5e7eb", scene.cssVars));
         out.push(`<g class="trend-chart-grid" shape-rendering="crispEdges">`);
         for (const l of scene.grid){
             out.push(`<line x1="${n1(l.x1)}" y1="${n1(l.y1)}" x2="${n1(l.x2)}" ` + `y2="${n1(l.y2)}" style="stroke:${stroke};stroke-width:1"/>`);
@@ -990,16 +1044,16 @@ function sceneToString(scene) {
         out.push(`<path class="trend-chart-area" d="${scene.areaPath}" ` + `style="fill:url(#${scene.fillGradient.id})"/>`);
     }
     if (scene.linePath) {
-        const stroke = scene.strokeGradient ? `url(#${scene.strokeGradient.id})` : scene.lineColor;
+        const stroke = scene.strokeGradient ? `url(#${scene.strokeGradient.id})` : color(scene.lineColor);
         out.push(`<path class="trend-chart-line" d="${scene.linePath}" ` + `style="fill:none;stroke:${stroke};stroke-width:${scene.lineWidth}px;` + `stroke-linejoin:round;stroke-linecap:round"/>`);
     }
     for (const m of scene.markers){
-        out.push(`<circle class="trend-chart-marker" cx="${n1(m.px)}" cy="${n1(m.py)}" ` + `r="${scene.pointRadius}" style="fill:${scene.lineColor}"/>`);
+        out.push(`<circle class="trend-chart-marker" cx="${n1(m.px)}" cy="${n1(m.py)}" ` + `r="${scene.pointRadius}" style="fill:${color(scene.lineColor)}"/>`);
     }
     out.push(`</g>`);
     if (scene.endDot) {
         const d = scene.endDot;
-        out.push(`<circle class="trend-chart-end-dot" cx="${n1(d.px)}" cy="${n1(d.py)}" ` + `r="${d.r}" style="fill:${d.color};stroke:${d.ringColor};stroke-width:2"/>`);
+        out.push(`<circle class="trend-chart-end-dot" cx="${n1(d.px)}" cy="${n1(d.py)}" ` + `r="${d.r}" style="fill:${color(d.color)};stroke:${color(d.ringColor)};stroke-width:2"/>`);
     }
     if (scene.xLabels.length) {
         out.push(`<g class="trend-chart-x-labels">`);

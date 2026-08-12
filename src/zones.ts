@@ -15,6 +15,16 @@ export function zoneColorAt(zones: ZoneConfig, value: number): string {
 	return colors[Math.max(0, Math.min(i - 1, colors.length - 1))];
 }
 
+/** Color of the zone *below* `value` — i.e. a boundary-equal `value` resolves
+ * to the zone it caps rather than the zone starting at it. Used for the top
+ * edge of a domain, where the zone above the edge is not visible at all. */
+function zoneColorBelow(zones: ZoneConfig, value: number): string {
+	const { boundaries, colors } = zones;
+	let i = 0;
+	while (i < boundaries.length && boundaries[i] < value) i++;
+	return colors[Math.max(0, Math.min(i - 1, colors.length - 1))];
+}
+
 /** Fractional offset of `value` measured from the top of the plot
  * (`domainY[1]` → 0, `domainY[0]` → 1), clamped to `[0, 1]`. */
 function offsetOf(value: number, domainY: [number, number]): number {
@@ -38,7 +48,10 @@ export function zoneGradientStops(
 			opacity === undefined ? { offset, color } : { offset, color, opacity },
 		);
 	};
-	push(0, zoneColorAt(zones, domainY[1]));
+	// the top edge resolves "below" so a domain capped exactly at a boundary is
+	// painted with the zone actually filling the plot (the hard-stop pair that
+	// would otherwise correct it sits at offset 0 and gets skipped below)
+	push(0, zoneColorBelow(zones, domainY[1]));
 	// walk boundaries from high value (top) to low so offsets stay ascending;
 	// boundary j separates zone j (above) from zone j - 1 (below)
 	for (let j = boundaries.length - 1; j >= 0; j--) {

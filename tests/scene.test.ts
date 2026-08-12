@@ -42,6 +42,58 @@ Deno.test("axes config: labels, gridlines, nice y domain", () => {
 	assert(s.plot.x >= 40);
 });
 
+Deno.test("y ticks and y domain come from one niceDomain pass — the bound is labeled", () => {
+	// [0, 105] expands to [0, 120] at step 20; a second niceDomain pass over the
+	// expanded domain used to pick step 50, labeling only 0/50/100 and leaving the
+	// top sixth of the axis blank
+	const s = computeScene(Array.from({ length: 22 }, (_, i) => i * 5), {}, ctx);
+	assertEquals(s.domainY, [0, 120]);
+	assertEquals(s.yLabels.map((l) => l.text), [
+		"0",
+		"20",
+		"40",
+		"60",
+		"80",
+		"100",
+		"120",
+	]);
+	// symmetric for a negative range: the bottom bound gets a label too
+	const n = computeScene(
+		Array.from({ length: 22 }, (_, i) => -105 + i * 5),
+		{},
+		ctx,
+	);
+	assertEquals(n.domainY, [-120, 0]);
+	assertEquals(n.yLabels[0].text, "-120");
+});
+
+Deno.test("every y domain bound is labeled and the ticks are evenly spaced", () => {
+	for (let m = 1; m <= 400; m++) {
+		const s = computeScene([0, m], {}, ctx);
+		const vals = s.yLabels.map((l) => Number(l.text));
+		assertEquals(vals[0], s.domainY[0], `[0, ${m}] lower bound unlabeled`);
+		assertEquals(
+			vals[vals.length - 1],
+			s.domainY[1],
+			`[0, ${m}] upper bound unlabeled`,
+		);
+		// uniform lattice
+		const step = vals[1] - vals[0];
+		for (let i = 1; i < vals.length; i++) {
+			assert(
+				Math.abs(vals[i] - vals[i - 1] - step) < step * 1e-9,
+				`[0, ${m}] non-uniform tick spacing: ${vals}`,
+			);
+		}
+	}
+});
+
+Deno.test("explicit domainY array still derives its own ticks", () => {
+	const s = computeScene([1, 2, 3], { domainY: [0, 100] }, ctx);
+	assertEquals(s.domainY, [0, 100]);
+	assertEquals(s.yLabels.map((l) => Number(l.text)), [0, 20, 40, 60, 80, 100]);
+});
+
 Deno.test("smooth + endDot", () => {
 	const s = computeScene([1, 2, 3], { smooth: true, endDot: true }, ctx);
 	assert(s.linePath.includes("C "));
@@ -102,4 +154,80 @@ Deno.test("empty data produces an empty but valid scene", () => {
 	assertEquals(s.linePath, "");
 	assertEquals(s.areaPath, "");
 	assertEquals(s.visible, []);
+});
+
+Deno.test("non-finite samples are dropped instead of truncating the line", () => {
+	// a NaN reaching the `d` attribute halts SVG path rendering from there on,
+	// so the line used to just stop while the axes still looked correct
+	const s = computeScene([1, 2, NaN, 4], {}, ctx);
+	assert(!s.linePath.includes("NaN"));
+	assert(!s.areaPath.includes("NaN"));
+	assertEquals(s.visible.map((p) => p.y), [1, 2, 4]);
+	// four `M`/`L` commands minus the dropped one
+	assertEquals(s.linePath.split(" L ").length, 3);
+});
+
+Deno.test("dropped samples keep ScenePoint.index pointing into the full dataset", () => {
+	const data = [
+		{ x: 0, y: 1 },
+		{ x: 1, y: NaN },
+		{ x: 2, y: 3 },
+		{ x: 3, y: Infinity },
+		{ x: NaN, y: 5 },
+		{ x: 5, y: 6 },
+	];
+	const s = computeScene(data, {}, ctx);
+	assertEquals(s.visible.map((p) => p.index), [0, 2, 5]);
+	// index still resolves to the original sample (PointEvent.index contract)
+	for (const p of s.visible) {
+		assertEquals(data[p.index].y, p.y);
+	}
+});
+
+Deno.test("dropped samples keep indices correct under a panned domain", () => {
+	const data = Array.from({ length: 20 }, (_, i) => ({
+		x: i,
+		y: i % 3 === 0 ? NaN : i,
+	}));
+	const s = computeScene(data, {}, { ...ctx, domainX: [8, 14] });
+	for (const p of s.visible) {
+		assertEquals(data[p.index].x, p.x);
+		assertEquals(data[p.index].y, p.y);
+	}
+	assert(s.visible.every((p) => Number.isFinite(p.y)));
+});
+
+Deno.test("an infinite sample does not poison the y domain", () => {
+	// ±Infinity survives dataRangeY's comparisons (unlike NaN), so it used to
+	// collapse the whole plot into a single pixel row
+	const auto = computeScene([10, 20, Infinity, 30], {}, ctx);
+	assertEquals(auto.domainY, [10, 30]);
+	const full = computeScene([10, 20, -Infinity, 30], { domainY: "full" }, ctx);
+	assert(Number.isFinite(full.domainY[0]) && Number.isFinite(full.domainY[1]));
+	assert(full.yLabels.every((l) => !l.text.includes("Infinity")));
+});
+
+Deno.test("all-non-finite data falls back to the empty-data scene", () => {
+	const s = computeScene([NaN, Infinity, -Infinity], {}, ctx);
+	assertEquals(s.visible, []);
+	assertEquals(s.linePath, "");
+	assertEquals(s.areaPath, "");
+	assertEquals(s.domainY, [0, 1]);
+	assertEquals(s.domainX, [0, 1]);
+	assert(s.grid.every((g) => Number.isFinite(g.y1)));
+	assert(s.yLabels.every((l) => Number.isFinite(l.y)));
+});
+
+Deno.test("endDot follows the last plottable sample, not a dropped tail", () => {
+	const data = Array.from({ length: 10 }, (_, i) => ({
+		x: i,
+		y: i >= 8 ? NaN : i,
+	}));
+	const s = computeScene(data, { endDot: true }, ctx);
+	assert(s.endDot !== null);
+	assertEquals(s.endDot!.px, s.visible[s.visible.length - 1].px);
+	assertEquals(s.visible[s.visible.length - 1].index, 7);
+	// still hidden when the (dropped-tail) dataset end is panned away
+	const panned = computeScene(data, { endDot: true }, { ...ctx, domainX: [0, 4] });
+	assertEquals(panned.endDot, null);
 });
