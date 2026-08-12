@@ -231,3 +231,80 @@ Deno.test("endDot follows the last plottable sample, not a dropped tail", () => 
 	const panned = computeScene(data, { endDot: true }, { ...ctx, domainX: [0, 4] });
 	assertEquals(panned.endDot, null);
 });
+
+/* --- annotations ---------------------------------------------------------- */
+
+const ANN_DATA = Array.from({ length: 21 }, (_, i) => ({ x: i * 5, y: 10 + i }));
+
+Deno.test("annotations: rule spans the plot, index maps back to the option array", () => {
+	const s = computeScene(ANN_DATA, {
+		annotations: [{ x: 50, label: "bankruptcy" }],
+	}, ctx);
+	assertEquals(s.annotations.length, 1);
+	const a = s.annotations[0];
+	assertEquals(a.index, 0);
+	assertEquals(a.x, 50);
+	assertEquals(a.y1, s.plot.y);
+	assertEquals(a.y2, s.plot.y + s.plot.height);
+	// x need not coincide with a sample
+	const off = computeScene(ANN_DATA, { annotations: [{ x: 52.5 }] }, ctx);
+	assert(off.annotations[0].px > a.px);
+});
+
+Deno.test("annotations: outside the visible window are dropped, not clamped", () => {
+	const opts = { annotations: [{ x: 5 }, { x: 50 }, { x: 95 }] };
+	const all = computeScene(ANN_DATA, opts, ctx);
+	assertEquals(all.annotations.map((a) => a.index), [0, 1, 2]);
+	const panned = computeScene(ANN_DATA, opts, { ...ctx, domainX: [40, 60] });
+	assertEquals(panned.annotations.map((a) => a.index), [1]);
+	// non-finite x is dropped like a non-finite sample
+	const bad = computeScene(ANN_DATA, { annotations: [{ x: NaN }] }, ctx);
+	assertEquals(bad.annotations, []);
+});
+
+Deno.test("annotations: emitted ascending by px, whatever the input order", () => {
+	const s = computeScene(ANN_DATA, {
+		annotations: [{ x: 80 }, { x: 20 }, { x: 50 }],
+	}, ctx);
+	assertEquals(s.annotations.map((a) => a.index), [1, 2, 0]);
+	assertEquals(s.annotations.map((a) => a.x), [20, 50, 80]);
+});
+
+Deno.test("annotations: a colliding label is dropped, its rule is not", () => {
+	const s = computeScene(ANN_DATA, {
+		annotations: [
+			{ x: 20, label: "refinery fire" },
+			{ x: 21, label: "opec meeting" },
+		],
+	}, ctx);
+	assertEquals(s.annotations.length, 2);
+	assert(s.annotations[0].label, "the first label is placed");
+	assertEquals(s.annotations[1].label, undefined);
+});
+
+Deno.test("annotations: a label near the right edge flips to the left of its rule", () => {
+	const s = computeScene(ANN_DATA, {
+		annotations: [{ x: 100, label: "bankruptcy" }],
+	}, ctx);
+	const label = s.annotations[0].label!;
+	assertEquals(label.anchor, "end");
+	assert(label.x <= s.annotations[0].px);
+	assert(label.x <= s.plot.x + s.plot.width);
+});
+
+Deno.test("annotations: color defaults are themable, explicit ones pass through", () => {
+	const themed = computeScene(ANN_DATA, { annotations: [{ x: 50 }] }, {
+		...ctx,
+		cssVars: true,
+	});
+	assertEquals(
+		themed.annotations[0].color,
+		"var(--trend-chart-annotation, #f59e0b)",
+	);
+	assertEquals(themed.annotations[0].dash, true);
+	const explicit = computeScene(ANN_DATA, {
+		annotations: [{ x: 50, color: "rebeccapurple", dash: false }],
+	}, { ...ctx, cssVars: true });
+	assertEquals(explicit.annotations[0].color, "rebeccapurple");
+	assertEquals(explicit.annotations[0].dash, false);
+});

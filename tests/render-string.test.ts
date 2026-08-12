@@ -121,3 +121,38 @@ Deno.test("renderToString: escapes zone colors", () => {
 	assertEquals(svg.includes(`"><b>`), false);
 	assertStringIncludes(svg, "&quot;&gt;&lt;b&gt;");
 });
+
+Deno.test("renderToString: annotation rules render behind the series, labels in front", () => {
+	const svg = renderToString([{ x: 0, y: 1 }, { x: 10, y: 4 }, { x: 20, y: 2 }], {
+		width: 400,
+		height: 150,
+		annotations: [{ x: 10, label: "bankruptcy" }],
+	});
+	assertStringIncludes(svg, "trend-chart-annotations");
+	assertStringIncludes(svg, "stroke-dasharray:4 3");
+	assertStringIncludes(svg, "#f59e0b");
+	assertStringIncludes(svg, ">bankruptcy</text>");
+	// context first, data on top of it, label on top of that
+	assert(
+		svg.indexOf("trend-chart-annotations") < svg.indexOf("trend-chart-line"),
+	);
+	assert(
+		svg.indexOf("trend-chart-line") < svg.indexOf("trend-chart-annotation-labels"),
+	);
+});
+
+Deno.test("renderToString: annotation label and color are escaped", () => {
+	const svg = renderToString([{ x: 0, y: 1 }, { x: 10, y: 4 }], {
+		width: 400,
+		height: 150,
+		annotations: [{ x: 5, label: `a<b&"c`, color: 'red"/><script>' }],
+	});
+	assert(!svg.includes("<script>"));
+	assert(!svg.includes(`a<b&"c`));
+	assertStringIncludes(svg, "a&lt;b&amp;&quot;c");
+});
+
+Deno.test("renderToString: no annotations means no annotation markup at all", () => {
+	const svg = renderToString([1, 2, 3], { width: 300, height: 100 });
+	assert(!svg.includes("trend-chart-annotation"));
+});

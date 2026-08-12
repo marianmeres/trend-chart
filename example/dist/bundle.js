@@ -330,12 +330,14 @@ function finiteSamples(points) {
 function cssColor(name, fallback, useVars) {
     return useVars ? `var(--trend-chart-${name}, ${fallback})` : fallback;
 }
+const FONT_SIZE = 11;
 const DEFAULTS = {
     lineColor: "#4a9eed",
     lineWidth: 2,
     fillOpacity: 0.15,
     yTickCount: 5,
-    pointRadius: 3
+    pointRadius: 3,
+    annotationColor: "#f59e0b"
 };
 function computeScene(data, options = {}, ctx) {
     const { points, indices: srcIndex } = finiteSamples(normalizeData(data));
@@ -484,6 +486,37 @@ function computeScene(data, options = {}, ctx) {
     const bands = bandsEnabled && options.zones ? zoneBands(options.zones, domainY, plot, {
         fontSize: 11
     }) : [];
+    const annotations = [];
+    for (const [index, a] of (options.annotations ?? []).entries()){
+        if (!a || !Number.isFinite(a.x)) continue;
+        if (a.x < domainX[0] || a.x > domainX[1]) continue;
+        annotations.push({
+            px: scaleX(a.x, cfg),
+            y1: plot.y,
+            y2: plot.y + plot.height,
+            x: a.x,
+            index,
+            color: a.color ?? cssColor("annotation", DEFAULTS.annotationColor, cssVars),
+            dash: a.dash ?? true
+        });
+    }
+    annotations.sort((a, b)=>a.px - b.px);
+    let lastLabelRight = -Infinity;
+    for (const a of annotations){
+        const label = options.annotations?.[a.index]?.label;
+        if (!label) continue;
+        const w = label.length * 11 * 0.6;
+        const right = a.px + 4 + w <= plot.x + plot.width;
+        const left = right ? a.px + 4 : a.px - 4 - w;
+        if (left < plot.x || left < lastLabelRight + 4) continue;
+        a.label = {
+            x: right ? a.px + 4 : a.px - 4,
+            y: plot.y + FONT_SIZE,
+            text: label,
+            anchor: right ? "start" : "end"
+        };
+        lastLabelRight = left + w;
+    }
     const pointsMode = options.points ?? "nearest";
     const markers = pointsMode === "all" ? visible : [];
     let endDot = null;
@@ -519,6 +552,7 @@ function computeScene(data, options = {}, ctx) {
         xLabels,
         markers,
         visible,
+        annotations,
         endDot,
         pointRadius,
         fontSize: 11,
@@ -660,17 +694,20 @@ class TrendChart {
     #strokeGrad = null;
     #gBands;
     #gGrid;
+    #gAnnotations;
     #gSeries;
     #areaEl;
     #lineEl;
     #gMarkers;
     #hoverDot;
     #endDotEl;
+    #gAnnotationLabels;
     #gXLabels;
     #gYLabels;
     #ro = null;
     #detachGestures = null;
     #hoverIndex = null;
+    #hoverAnnotation = null;
     #downAt = null;
     #moved = false;
     constructor(container, data, options = {}){
@@ -697,6 +734,8 @@ class TrendChart {
         this.#gGrid = svg.appendChild(createSvg("g"));
         this.#gGrid.setAttribute("class", "trend-chart-grid");
         this.#gGrid.setAttribute("shape-rendering", "crispEdges");
+        this.#gAnnotations = svg.appendChild(createSvg("g"));
+        this.#gAnnotations.setAttribute("class", "trend-chart-annotations");
         this.#gSeries = svg.appendChild(createSvg("g"));
         this.#gSeries.setAttribute("clip-path", `url(#${this.#idPrefix}-clip)`);
         this.#areaEl = this.#gSeries.appendChild(createSvg("path"));
@@ -711,6 +750,9 @@ class TrendChart {
         this.#hoverDot.setAttribute("class", "trend-chart-hover-dot");
         this.#hoverDot.style.display = "none";
         this.#hoverDot.style.pointerEvents = "none";
+        this.#gAnnotationLabels = svg.appendChild(createSvg("g"));
+        this.#gAnnotationLabels.setAttribute("class", "trend-chart-annotation-labels");
+        this.#gAnnotationLabels.style.pointerEvents = "none";
         this.#gXLabels = svg.appendChild(createSvg("g"));
         this.#gXLabels.setAttribute("class", "trend-chart-x-labels");
         this.#gYLabels = svg.appendChild(createSvg("g"));
@@ -846,6 +888,31 @@ class TrendChart {
             el.style.stroke = gridColor;
             el.style.strokeWidth = "1";
         });
+        const rules = syncChildren(this.#gAnnotations, "line", scene.annotations.length);
+        scene.annotations.forEach((a, i)=>{
+            const el = rules[i];
+            el.setAttribute("x1", String(a.px));
+            el.setAttribute("y1", String(a.y1));
+            el.setAttribute("x2", String(a.px));
+            el.setAttribute("y2", String(a.y2));
+            el.style.stroke = a.color;
+            el.style.strokeDasharray = a.dash ? "4 3" : "";
+        });
+        const annLabels = scene.annotations.filter((a)=>a.label);
+        const annTexts = syncChildren(this.#gAnnotationLabels, "text", annLabels.length);
+        const halo = cssColor("annotation-halo", "#ffffff", scene.cssVars);
+        annLabels.forEach((a, i)=>{
+            const el = annTexts[i];
+            this.#patchText(el, a.label, a.color);
+            el.style.paintOrder = "stroke";
+            el.style.stroke = halo;
+            el.style.strokeWidth = "3px";
+            el.style.strokeLinejoin = "round";
+        });
+        if (this.#hoverAnnotation !== null && !scene.annotations.some((a)=>a.index === this.#hoverAnnotation)) {
+            this.#setAnnotationHover(null);
+        }
+        this.#paintAnnotationHover();
         this.#areaEl.setAttribute("d", scene.areaPath);
         this.#areaEl.style.fill = scene.fillGradient ? `url(#${scene.fillGradient.id})` : "none";
         this.#lineEl.setAttribute("d", scene.linePath);
@@ -926,13 +993,21 @@ class TrendChart {
                 const dist = Math.hypot(ev.clientX - this.#downAt.x, ev.clientY - this.#downAt.y);
                 if (dist > 4) this.#moved = true;
             }
-            if (this.#pointsMode() === "none" || this.#downAt) return;
+            if (this.#downAt) return;
+            this.#setAnnotationHover(this.#nearestAnnotation(ev));
+            if (this.#pointsMode() === "none") return;
             this.#setHover(this.#nearest(ev));
         });
         svg.addEventListener("pointerup", (ev)=>{
             const wasClick = this.#downAt && !this.#moved;
             this.#downAt = null;
-            if (wasClick && this.#pointsMode() !== "none") {
+            if (!wasClick) return;
+            const note = this.#options.onAnnotationClick ? this.#nearestAnnotation(ev) : null;
+            if (note) {
+                this.#options.onAnnotationClick?.(note);
+                return;
+            }
+            if (this.#pointsMode() !== "none") {
                 const hit = this.#nearest(ev);
                 if (hit) this.#options.onPointClick?.(hit);
             }
@@ -940,6 +1015,7 @@ class TrendChart {
         svg.addEventListener("pointerleave", ()=>{
             this.#downAt = null;
             this.#setHover(null);
+            this.#setAnnotationHover(null);
         });
     }
     #pointsMode() {
@@ -985,6 +1061,42 @@ class TrendChart {
             this.#hoverDot.style.display = "none";
         }
         this.#options.onPointHover?.(hit);
+    }
+    #nearestAnnotation(ev) {
+        const scene = this.#scene;
+        const configured = this.#options.annotations;
+        if (!scene?.annotations.length || !configured?.length) return null;
+        const rect = this.#svg.getBoundingClientRect();
+        const px = ev.clientX - rect.left;
+        let best = scene.annotations[0];
+        for (const a of scene.annotations){
+            if (Math.abs(a.px - px) < Math.abs(best.px - px)) best = a;
+        }
+        if (Math.abs(best.px - px) > 8) return null;
+        return {
+            annotation: configured[best.index],
+            index: best.index,
+            pixel: {
+                x: best.px,
+                y: best.y1
+            }
+        };
+    }
+    #setAnnotationHover(hit) {
+        if ((hit?.index ?? null) === this.#hoverAnnotation) return;
+        this.#hoverAnnotation = hit?.index ?? null;
+        this.#paintAnnotationHover();
+        this.#options.onAnnotationHover?.(hit);
+    }
+    #paintAnnotationHover() {
+        const rules = [
+            ...this.#gAnnotations.children
+        ];
+        this.#scene?.annotations.forEach((a, i)=>{
+            const on = a.index === this.#hoverAnnotation;
+            rules[i].style.opacity = on ? "1" : "0.75";
+            rules[i].style.strokeWidth = on ? "2" : "1";
+        });
     }
 }
 function esc(s) {
@@ -1039,6 +1151,13 @@ function sceneToString(scene) {
         }
         out.push(`</g>`);
     }
+    if (scene.annotations.length) {
+        out.push(`<g class="trend-chart-annotations">`);
+        for (const a of scene.annotations){
+            out.push(`<line x1="${n1(a.px)}" y1="${n1(a.y1)}" x2="${n1(a.px)}" ` + `y2="${n1(a.y2)}" style="stroke:${color(a.color)};stroke-width:1` + (a.dash ? ";stroke-dasharray:4 3" : "") + `;opacity:0.75"/>`);
+        }
+        out.push(`</g>`);
+    }
     out.push(`<g clip-path="url(#${clipId})">`);
     if (scene.areaPath && scene.fillGradient) {
         out.push(`<path class="trend-chart-area" d="${scene.areaPath}" ` + `style="fill:url(#${scene.fillGradient.id})"/>`);
@@ -1054,6 +1173,15 @@ function sceneToString(scene) {
     if (scene.endDot) {
         const d = scene.endDot;
         out.push(`<circle class="trend-chart-end-dot" cx="${n1(d.px)}" cy="${n1(d.py)}" ` + `r="${d.r}" style="fill:${color(d.color)};stroke:${color(d.ringColor)};stroke-width:2"/>`);
+    }
+    const annotated = scene.annotations.filter((a)=>a.label);
+    if (annotated.length) {
+        const halo = color(cssColor("annotation-halo", "#ffffff", scene.cssVars));
+        out.push(`<g class="trend-chart-annotation-labels">`);
+        for (const a of annotated){
+            out.push(textMarkup(a.label, `fill:${color(a.color)};font-family:${FONT_FAMILY1};` + `font-size:${scene.fontSize}px;` + `paint-order:stroke;stroke:${halo};stroke-width:3px;` + `stroke-linejoin:round`));
+        }
+        out.push(`</g>`);
     }
     if (scene.xLabels.length) {
         out.push(`<g class="trend-chart-x-labels">`);

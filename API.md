@@ -167,6 +167,9 @@ look.
 | `onPointHover`           | `(e: PointEvent \| null) => void`            | —                               | Nearest hovered point changed (`null` = left).                                                                                                |
 | `onDomainChange`         | `(domainX) => void`                          | —                               | Visible window changed (gesture or programmatic).                                                                                             |
 | `zones`                  | `ZoneConfig`                                 | —                               | Value-zone coloring, see below.                                                                                                               |
+| `annotations`            | `Annotation[]`                               | —                               | Context events on the x axis (not data points), see below. Ones outside the visible window are not rendered.                                  |
+| `onAnnotationHover`      | `(e: AnnotationEvent \| null) => void`       | —                               | Hovered annotation changed (`null` = left).                                                                                                   |
+| `onAnnotationClick`      | `(e: AnnotationEvent) => void`               | —                               | Click near an annotation rule.                                                                                                                |
 | `class`                  | `string`                                     | —                               | Extra class on the root svg.                                                                                                                  |
 | `ariaLabel`              | `string`                                     | —                               | Accessible label (`aria-label` + `<title>`).                                                                                                  |
 | `cssVars`                | `boolean`                                    | `true` (DOM) / `false` (string) | Wrap colors in `var(--trend-chart-*, fallback)`.                                                                                              |
@@ -198,6 +201,61 @@ interface PointEvent {
 
 There is no built-in tooltip — render your own from `onPointHover`/`onPointClick`.
 
+### `Annotation`
+
+A context note on the x axis that is **not** a data point — the day a refinery
+went offline, a deploy, a policy change. It answers "why does the line do that
+here?", which a series alone cannot.
+
+```typescript
+interface Annotation {
+	x: number; // same units as DataPoint.x; need not match a sample
+	label?: string; // short label at the top of the rule
+	color?: string; // default #f59e0b
+	dash?: boolean; // dashed rule, default true
+	data?: unknown; // opaque passthrough, handed back on every event
+}
+```
+
+The division of labour is deliberate: **the library says where an annotation is
+and fires when it is interacted with; the host says what it means.** The chart
+draws a vertical rule (plus the short `label`, if it fits) and hands the whole
+annotation back — `data` untouched — through `onAnnotationHover` /
+`onAnnotationClick`. Rendering the actual note (tooltip, popover, side panel) is
+the host's business, exactly as with points.
+
+```typescript
+new TrendChart(el, prices, {
+	annotations: [
+		{ x: Date.UTC(2026, 1, 3), label: "Helios files Ch.11", data: article },
+	],
+	onAnnotationClick: (e) => showArticle(e.annotation.data, e.pixel),
+});
+```
+
+Label placement is intentionally dumb: labels are placed left to right and a
+label that would collide with an already placed one is **dropped — its rule is
+not**. So a crowded window loses text, never the marks themselves. A label that
+would overflow the right edge flips to the left of its rule. Labels are drawn in
+front of the series (with a halo, see `--trend-chart-annotation-halo`); rules are
+drawn behind it, so data always wins visually.
+
+Hit-testing radius is 8px — much tighter than the 30px used for points, since
+annotations are sparse, deliberate targets. When both would hit, an annotation
+wins the click — but only if `onAnnotationClick` is set, so an unhandled
+annotation never becomes a dead zone inside the point hit radius. Hover is
+independent: `onPointHover` and `onAnnotationHover` both fire.
+
+### `AnnotationEvent`
+
+```typescript
+interface AnnotationEvent {
+	annotation: Annotation; // as configured, including `data`
+	index: number; // into the `annotations` option array
+	pixel: { x: number; y: number }; // rule's top end (tooltip anchoring)
+}
+```
+
 ### `Scene`
 
 The renderer-independent output of `computeScene()` — one fully resolved chart
@@ -224,6 +282,7 @@ interface Scene {
 	xLabels: SceneText[];
 	markers: ScenePoint[]; // only in points: "all"
 	visible: ScenePoint[]; // all visible points (hit-test source)
+	annotations: SceneAnnotation[]; // visible annotations, ascending by px
 	endDot: { px; py; r; color; ringColor } | null;
 	pointRadius: number;
 	fontSize: number;
@@ -293,8 +352,9 @@ interface PxPoint {
 Scene primitives — `GradientStop` (`offset`, `color`, `opacity?`),
 `SceneGradient` (`id`, `y1`, `y2`, `stops`), `SceneText` (`x`, `y`, `text`,
 `anchor`), `SceneLine` (`x1`, `y1`, `x2`, `y2`), `SceneBand` (rect + `color`,
-`opacity`, optional `label`) and `ScenePoint` (`px`, `py`, `x`, `y`, `index`)
-— are all exported too; each member is documented in the type declarations.
+`opacity`, optional `label`), `ScenePoint` (`px`, `py`, `x`, `y`, `index`) and
+`SceneAnnotation` (`px`, `y1`, `y2`, `x`, `index`, `color`, `dash`, optional
+`label`) — are all exported too; each member is documented in the type declarations.
 
 ---
 
@@ -303,15 +363,19 @@ Scene primitives — `GradientStop` (`offset`, `color`, `opacity?`),
 Stable class names on rendered elements: `trend-chart` (root svg),
 `trend-chart-line`, `trend-chart-area`, `trend-chart-grid`,
 `trend-chart-bands`, `trend-chart-markers`, `trend-chart-end-dot`,
-`trend-chart-hover-dot`, `trend-chart-x-labels`, `trend-chart-y-labels`.
+`trend-chart-hover-dot`, `trend-chart-annotations`,
+`trend-chart-annotation-labels`, `trend-chart-x-labels`,
+`trend-chart-y-labels`.
 
 CSS custom properties (all optional, fall back to option-derived values):
 
-| Variable                     | Themes                       |
-| ---------------------------- | ---------------------------- |
-| `--trend-chart-line`         | line stroke                  |
-| `--trend-chart-fill`         | area fill base color         |
-| `--trend-chart-grid`         | gridline stroke              |
-| `--trend-chart-label`        | axis label color             |
-| `--trend-chart-font`         | label font family            |
-| `--trend-chart-end-dot-ring` | end-dot/hover-dot ring color |
+| Variable                        | Themes                                  |
+| ------------------------------- | --------------------------------------- |
+| `--trend-chart-line`            | line stroke                             |
+| `--trend-chart-fill`            | area fill base color                    |
+| `--trend-chart-grid`            | gridline stroke                         |
+| `--trend-chart-label`           | axis label color                        |
+| `--trend-chart-font`            | label font family                       |
+| `--trend-chart-end-dot-ring`    | end-dot/hover-dot ring color            |
+| `--trend-chart-annotation`      | annotation rule + label color           |
+| `--trend-chart-annotation-halo` | halo punched behind an annotation label |

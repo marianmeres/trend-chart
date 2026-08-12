@@ -6,8 +6,8 @@
 
 Framework-agnostic, zero-dependency single-series trend chart (SVG). Line/area
 rendering with optional smoothing, value-zone coloring, axes and gridlines,
-domain pan/zoom (drag, wheel, pinch), point interaction — and server-side
-rendering to a static SVG string (no DOM required).
+domain pan/zoom (drag, wheel, pinch), point interaction, context annotations —
+and server-side rendering to a static SVG string (no DOM required).
 
 Single purpose by design: one line/area series. No bars, pies, or multi-series.
 
@@ -85,6 +85,31 @@ new TrendChart(el, data, {
 The line and area are colored by value using hard-stop gradients; translucent
 background bands (with optional labels) provide context.
 
+### Context annotations
+
+Not every mark on a chart is a data point. An annotation marks _why_ the line
+does what it does at some `x` — the day a supplier went bankrupt, a deploy, a
+policy change:
+
+```typescript
+new TrendChart(el, gasPrices, {
+	annotations: [
+		{ x: Date.UTC(2026, 1, 3), label: "Helios files Ch.11", data: article },
+		{ x: Date.UTC(2026, 2, 18), label: "OPEC+ output raise" },
+	],
+	onAnnotationClick: (e) => showArticle(e.annotation.data, e.pixel),
+});
+```
+
+The chart draws a dashed vertical rule behind the series (data always wins
+visually) with the short `label` on top, and hands the annotation back — `data`
+untouched — on hover and click. **The library says where it is and fires when
+it is interacted with; the host says what it means.** Rendering the note itself
+stays yours, exactly as with points: there is still no built-in tooltip.
+
+Annotations pan and zoom with the series and are dropped when they leave the
+window. In a crowded window a colliding _label_ is dropped; its rule never is.
+
 ### Server-side rendering (Deno, no DOM)
 
 ```typescript
@@ -112,6 +137,8 @@ without JS — e.g. dark mode:
 	--trend-chart-fill: #a78bfa;
 	--trend-chart-grid: #312e81;
 	--trend-chart-label: #9ca3af;
+	--trend-chart-annotation: #f59e0b;
+	--trend-chart-annotation-halo: #1e1b4b; /* the page background */
 }
 ```
 

@@ -121,6 +121,19 @@ export function sceneToString(scene: Scene): string {
 		out.push(`</g>`);
 	}
 
+	// annotation rules (context, so behind the series — data always wins)
+	if (scene.annotations.length) {
+		out.push(`<g class="trend-chart-annotations">`);
+		for (const a of scene.annotations) {
+			out.push(
+				`<line x1="${n(a.px)}" y1="${n(a.y1)}" x2="${n(a.px)}" ` +
+					`y2="${n(a.y2)}" style="stroke:${color(a.color)};stroke-width:1` +
+					(a.dash ? ";stroke-dasharray:4 3" : "") + `;opacity:0.75"/>`,
+			);
+		}
+		out.push(`</g>`);
+	}
+
 	// series (clipped)
 	out.push(`<g clip-path="url(#${clipId})">`);
 	if (scene.areaPath && scene.fillGradient) {
@@ -156,6 +169,26 @@ export function sceneToString(scene: Scene): string {
 					color(d.ringColor)
 				};stroke-width:2"/>`,
 		);
+	}
+
+	// annotation labels — in front of the series, or the line swallows them
+	const annotated = scene.annotations.filter((a) => a.label);
+	if (annotated.length) {
+		const halo = color(cssColor("annotation-halo", "#ffffff", scene.cssVars));
+		out.push(`<g class="trend-chart-annotation-labels">`);
+		for (const a of annotated) {
+			out.push(
+				textMarkup(
+					a.label!,
+					`fill:${color(a.color)};font-family:${FONT_FAMILY};` +
+						`font-size:${scene.fontSize}px;` +
+						// halo: the label sits at the plot top, where the line often is
+						`paint-order:stroke;stroke:${halo};stroke-width:3px;` +
+						`stroke-linejoin:round`,
+				),
+			);
+		}
+		out.push(`</g>`);
 	}
 
 	// labels

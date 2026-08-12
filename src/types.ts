@@ -52,6 +52,36 @@ export interface PointEvent {
 	pixel: { x: number; y: number };
 }
 
+/** A context annotation: a note on the x axis that is *not* a data point — the
+ * day a refinery went offline, a deploy, a policy change. The library says
+ * **where** it is and fires **when** it is interacted with; rendering the note
+ * itself (tooltip, popover, side panel) stays the host's business. */
+export interface Annotation {
+	/** Position on the x axis, same units as {@link DataPoint.x}. Need not
+	 * coincide with a sample — an event happens when it happens. */
+	x: number;
+	/** Short label drawn at the top of the rule. Keep it short: it is dropped
+	 * (the rule stays) when it would collide with an already placed one. */
+	label?: string;
+	/** Rule and label color. Default `#f59e0b`. */
+	color?: string;
+	/** Dashed rule, so it never reads as data. Default `true`. */
+	dash?: boolean;
+	/** Opaque passthrough handed back on every {@link AnnotationEvent} — an id,
+	 * a record, the full note text. Never inspected by the library. */
+	data?: unknown;
+}
+
+/** Payload for annotation click/hover callbacks. */
+export interface AnnotationEvent {
+	/** The annotation as configured (including its `data` passthrough). */
+	annotation: Annotation;
+	/** Index into the `annotations` array that was passed in. */
+	index: number;
+	/** Pixel position of the rule's top end within the svg — anchor a tooltip here. */
+	pixel: { x: number; y: number };
+}
+
 /** X tick placement: target count, explicit values, or a resolver callback. */
 export type XTicksOption =
 	| number
@@ -128,6 +158,16 @@ export interface TrendChartOptions {
 
 	/** Value-zone coloring. */
 	zones?: ZoneConfig;
+
+	/** Context annotations — events on the x axis that are not data points.
+	 * Ones outside the visible window are simply not rendered. */
+	annotations?: Annotation[];
+	/** Fired when the hovered annotation changes (`null` = none). */
+	onAnnotationHover?: (event: AnnotationEvent | null) => void;
+	/** Fired on click near an annotation rule. Takes precedence over
+	 * `onPointClick` when both would hit (annotations are the sparser,
+	 * more deliberate target) — but only if this handler is set. */
+	onAnnotationClick?: (event: AnnotationEvent) => void;
 
 	/** Extra class name(s) on the root `<svg>`. */
 	class?: string;
@@ -221,6 +261,27 @@ export interface ScenePoint {
 	index: number;
 }
 
+/** An {@link Annotation} mapped to pixel space: a vertical rule spanning the
+ * plot, with its label already placed (or dropped, on collision). */
+export interface SceneAnnotation {
+	/** Pixel x of the rule. */
+	px: number;
+	/** Pixel y of the rule's top end (plot top). */
+	y1: number;
+	/** Pixel y of the rule's bottom end (plot bottom). */
+	y2: number;
+	/** Data x. */
+	x: number;
+	/** Index into the `annotations` option array. */
+	index: number;
+	/** Resolved rule/label color. */
+	color: string;
+	/** Whether the rule is dashed. */
+	dash: boolean;
+	/** Placed label — absent when unset, or dropped to avoid a collision. */
+	label?: SceneText;
+}
+
 /** Fully computed, renderer-independent description of one chart frame. */
 export interface Scene {
 	/** Svg width in px. */
@@ -257,6 +318,8 @@ export interface Scene {
 	markers: ScenePoint[];
 	/** All visible points (hit-testing source, superset of `markers`). */
 	visible: ScenePoint[];
+	/** Visible context annotations, ascending by `px` (hit-testing source). */
+	annotations: SceneAnnotation[];
 	/** Emphasized last-point marker, `null` when disabled or panned out of view. */
 	endDot:
 		| { px: number; py: number; r: number; color: string; ringColor: string }

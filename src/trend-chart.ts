@@ -1,4 +1,5 @@
 import type {
+	AnnotationEvent,
 	DataPoint,
 	PointEvent,
 	Scene,
@@ -13,6 +14,8 @@ import { attachGestures } from "./gestures.ts";
 const SVG_NS = "http://www.w3.org/2000/svg";
 const FONT_FAMILY = "ui-sans-serif, system-ui, sans-serif";
 const HOVER_MAX_DISTANCE = 30;
+// Annotations are sparse, deliberate targets — a tight radius, unlike points.
+const ANNOTATION_MAX_DISTANCE = 8;
 
 let instanceCounter = 0;
 
@@ -82,18 +85,21 @@ export class TrendChart {
 	#strokeGrad: SVGLinearGradientElement | null = null;
 	#gBands: SVGGElement;
 	#gGrid: SVGGElement;
+	#gAnnotations: SVGGElement;
 	#gSeries: SVGGElement;
 	#areaEl: SVGPathElement;
 	#lineEl: SVGPathElement;
 	#gMarkers: SVGGElement;
 	#hoverDot: SVGCircleElement;
 	#endDotEl: SVGCircleElement;
+	#gAnnotationLabels: SVGGElement;
 	#gXLabels: SVGGElement;
 	#gYLabels: SVGGElement;
 
 	#ro: ResizeObserver | null = null;
 	#detachGestures: (() => void) | null = null;
 	#hoverIndex: number | null = null;
+	#hoverAnnotation: number | null = null;
 	#downAt: { x: number; y: number } | null = null;
 	#moved = false;
 
@@ -134,6 +140,10 @@ export class TrendChart {
 		this.#gGrid.setAttribute("class", "trend-chart-grid");
 		this.#gGrid.setAttribute("shape-rendering", "crispEdges");
 
+		// context rules sit behind the series (their labels go in front, below)
+		this.#gAnnotations = svg.appendChild(createSvg("g"));
+		this.#gAnnotations.setAttribute("class", "trend-chart-annotations");
+
 		this.#gSeries = svg.appendChild(createSvg("g"));
 		this.#gSeries.setAttribute("clip-path", `url(#${this.#idPrefix}-clip)`);
 		this.#areaEl = this.#gSeries.appendChild(createSvg("path"));
@@ -149,6 +159,10 @@ export class TrendChart {
 		this.#hoverDot.setAttribute("class", "trend-chart-hover-dot");
 		this.#hoverDot.style.display = "none";
 		this.#hoverDot.style.pointerEvents = "none";
+
+		this.#gAnnotationLabels = svg.appendChild(createSvg("g"));
+		this.#gAnnotationLabels.setAttribute("class", "trend-chart-annotation-labels");
+		this.#gAnnotationLabels.style.pointerEvents = "none";
 
 		this.#gXLabels = svg.appendChild(createSvg("g"));
 		this.#gXLabels.setAttribute("class", "trend-chart-x-labels");
@@ -321,6 +335,46 @@ export class TrendChart {
 			el.style.strokeWidth = "1";
 		});
 
+		// annotations
+		const rules = syncChildren(
+			this.#gAnnotations,
+			"line",
+			scene.annotations.length,
+		);
+		scene.annotations.forEach((a, i) => {
+			const el = rules[i];
+			el.setAttribute("x1", String(a.px));
+			el.setAttribute("y1", String(a.y1));
+			el.setAttribute("x2", String(a.px));
+			el.setAttribute("y2", String(a.y2));
+			el.style.stroke = a.color;
+			el.style.strokeDasharray = a.dash ? "4 3" : "";
+		});
+		const annLabels = scene.annotations.filter((a) => a.label);
+		const annTexts = syncChildren(
+			this.#gAnnotationLabels,
+			"text",
+			annLabels.length,
+		);
+		// halo: the label sits at the plot top, where the line often is
+		const halo = cssColor("annotation-halo", "#ffffff", scene.cssVars);
+		annLabels.forEach((a, i) => {
+			const el = annTexts[i] as SVGTextElement;
+			this.#patchText(el, a.label!, a.color);
+			el.style.paintOrder = "stroke";
+			el.style.stroke = halo;
+			el.style.strokeWidth = "3px";
+			el.style.strokeLinejoin = "round";
+		});
+		// a pan can carry the hovered annotation out of the window
+		if (
+			this.#hoverAnnotation !== null &&
+			!scene.annotations.some((a) => a.index === this.#hoverAnnotation)
+		) {
+			this.#setAnnotationHover(null);
+		}
+		this.#paintAnnotationHover();
+
 		// series
 		this.#areaEl.setAttribute("d", scene.areaPath);
 		this.#areaEl.style.fill = scene.fillGradient
@@ -431,13 +485,26 @@ export class TrendChart {
 				);
 				if (dist > 4) this.#moved = true;
 			}
-			if (this.#pointsMode() === "none" || this.#downAt) return;
+			if (this.#downAt) return;
+			this.#setAnnotationHover(this.#nearestAnnotation(ev));
+			if (this.#pointsMode() === "none") return;
 			this.#setHover(this.#nearest(ev));
 		});
 		svg.addEventListener("pointerup", (ev) => {
 			const wasClick = this.#downAt && !this.#moved;
 			this.#downAt = null;
-			if (wasClick && this.#pointsMode() !== "none") {
+			if (!wasClick) return;
+			// Annotations win over points when both are in range — but only if the
+			// host actually listens, so an unhandled annotation never becomes a
+			// dead zone in the middle of the (much wider) point hit radius.
+			const note = this.#options.onAnnotationClick
+				? this.#nearestAnnotation(ev)
+				: null;
+			if (note) {
+				this.#options.onAnnotationClick?.(note);
+				return;
+			}
+			if (this.#pointsMode() !== "none") {
 				const hit = this.#nearest(ev);
 				if (hit) this.#options.onPointClick?.(hit);
 			}
@@ -445,6 +512,7 @@ export class TrendChart {
 		svg.addEventListener("pointerleave", () => {
 			this.#downAt = null;
 			this.#setHover(null);
+			this.#setAnnotationHover(null);
 		});
 	}
 
@@ -494,5 +562,47 @@ export class TrendChart {
 			this.#hoverDot.style.display = "none";
 		}
 		this.#options.onPointHover?.(hit);
+	}
+
+	/* --- annotation interaction ---------------------------------------------- */
+
+	/** Visible annotation whose rule is within {@link ANNOTATION_MAX_DISTANCE}
+	 * of the pointer's x, or `null`. */
+	#nearestAnnotation(ev: { clientX: number }): AnnotationEvent | null {
+		const scene = this.#scene;
+		const configured = this.#options.annotations;
+		if (!scene?.annotations.length || !configured?.length) return null;
+		const rect = this.#svg.getBoundingClientRect();
+		const px = ev.clientX - rect.left;
+		let best = scene.annotations[0];
+		for (const a of scene.annotations) {
+			if (Math.abs(a.px - px) < Math.abs(best.px - px)) best = a;
+		}
+		if (Math.abs(best.px - px) > ANNOTATION_MAX_DISTANCE) return null;
+		return {
+			annotation: configured[best.index],
+			index: best.index,
+			// the rule's top end — the natural anchor for a host tooltip
+			pixel: { x: best.px, y: best.y1 },
+		};
+	}
+
+	/** Emphasize the hovered rule and notify `onAnnotationHover` — on change only. */
+	#setAnnotationHover(hit: AnnotationEvent | null): void {
+		if ((hit?.index ?? null) === this.#hoverAnnotation) return;
+		this.#hoverAnnotation = hit?.index ?? null;
+		this.#paintAnnotationHover();
+		this.#options.onAnnotationHover?.(hit);
+	}
+
+	/** Paint the hover emphasis. Hover is pointer state, not geometry, so it is
+	 * the one thing the scene does not carry — it is applied on top of it. */
+	#paintAnnotationHover(): void {
+		const rules = [...this.#gAnnotations.children] as SVGLineElement[];
+		this.#scene?.annotations.forEach((a, i) => {
+			const on = a.index === this.#hoverAnnotation;
+			rules[i].style.opacity = on ? "1" : "0.75";
+			rules[i].style.strokeWidth = on ? "2" : "1";
+		});
 	}
 }

@@ -1,6 +1,7 @@
 import type {
 	DataPoint,
 	Scene,
+	SceneAnnotation,
 	SceneGradient,
 	ScenePoint,
 	SceneText,
@@ -92,6 +93,7 @@ const DEFAULTS = {
 	fillOpacity: 0.15,
 	yTickCount: 5,
 	pointRadius: 3,
+	annotationColor: "#f59e0b",
 } as const;
 
 /** Compute one fully resolved chart frame from data + options + context.
@@ -273,6 +275,48 @@ export function computeScene(
 		? zoneBands(options.zones, domainY, plot, { fontSize: FONT_SIZE })
 		: [];
 
+	// --- annotations ---------------------------------------------------------
+	// Context events, not data: a vertical rule at a data x. Only the geometry is
+	// computed here — the note itself is the host's to render (see the
+	// `onAnnotation*` callbacks). Labels are placed greedily left-to-right and
+	// dropped on collision; the rule always survives, so an annotation never
+	// vanishes silently just because the window got crowded.
+	const annotations: SceneAnnotation[] = [];
+	for (const [index, a] of (options.annotations ?? []).entries()) {
+		if (!a || !Number.isFinite(a.x)) continue;
+		if (a.x < domainX[0] || a.x > domainX[1]) continue;
+		annotations.push({
+			px: scaleX(a.x, cfg),
+			y1: plot.y,
+			y2: plot.y + plot.height,
+			x: a.x,
+			index,
+			// an explicit color wins verbatim; the default stays themable
+			color: a.color ?? cssColor("annotation", DEFAULTS.annotationColor, cssVars),
+			dash: a.dash ?? true,
+		});
+	}
+	annotations.sort((a, b) => a.px - b.px);
+
+	let lastLabelRight = -Infinity;
+	for (const a of annotations) {
+		const label = options.annotations?.[a.index]?.label;
+		if (!label) continue;
+		// no text metrics without a DOM — estimate, deliberately generous
+		const w = label.length * FONT_SIZE * 0.6;
+		// flip to the left of the rule rather than overflow the plot
+		const right = a.px + 4 + w <= plot.x + plot.width;
+		const left = right ? a.px + 4 : a.px - 4 - w;
+		if (left < plot.x || left < lastLabelRight + 4) continue;
+		a.label = {
+			x: right ? a.px + 4 : a.px - 4,
+			y: plot.y + FONT_SIZE,
+			text: label,
+			anchor: right ? "start" : "end",
+		};
+		lastLabelRight = left + w;
+	}
+
 	// --- points / end dot ----------------------------------------------------
 	const pointsMode = options.points ?? "nearest";
 	const markers = pointsMode === "all" ? visible : [];
@@ -316,6 +360,7 @@ export function computeScene(
 		xLabels,
 		markers,
 		visible,
+		annotations,
 		endDot,
 		pointRadius,
 		fontSize: FONT_SIZE,

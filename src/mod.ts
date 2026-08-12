@@ -3,8 +3,8 @@
  *
  * Framework-agnostic, zero-dependency single-series trend chart (SVG).
  * Line/area rendering with optional smoothing, value-zone coloring, axes,
- * gridlines, pan/zoom and point interaction — plus server-side rendering
- * to a static SVG string.
+ * gridlines, pan/zoom, point interaction and context annotations — plus
+ * server-side rendering to a static SVG string.
  */
 
 export * from "./types.ts";

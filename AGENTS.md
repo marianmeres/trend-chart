@@ -60,6 +60,11 @@ that breaks SSR and testability. New visual features go: compute in `scene.ts`
    (`formatX`/`formatY`) — no time logic in the lib.
 6. Out of scope (do not add): multi-series, bar/pie, built-in tooltips,
    momentum panning, canvas renderer.
+7. Interaction boundary — "the lib says where and fires when; the host says
+   what". Points and annotations both ship geometry + pixel coords + callbacks;
+   the host renders the note/tooltip. `Annotation.data` is opaque passthrough:
+   never inspect it. Growing annotations into a note-rendering layer (popovers,
+   rich text, flip positioning) is how tooltips creep back in via rule 6.
 
 ## Before Making Changes
 
@@ -78,4 +83,6 @@ that breaks SSR and testability. New visual features go: compute in `scene.ts`
 - [README.md](./README.md) — human quick start
 - [API.md](./API.md) — full public API reference
 - [example/index.html](./example/index.html) — runnable showcase of every option
+- [docs/annotations-followups.md](./docs/annotations-followups.md) — what the
+  annotation feature deliberately does NOT do, and why (read before extending it)
 - `tmp/IMPLEMENTATION_PLAN.md` — original v1 design decisions (gitignored)
