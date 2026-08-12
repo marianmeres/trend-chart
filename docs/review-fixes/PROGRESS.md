@@ -25,7 +25,7 @@ Branch: `fix/sprint-1-landmines`
 | - | ----------------------------------------------------------------------------------- | ---------------------------------- | ------ | --------- |
 | 1 | `niceTicks()` terminates — index-based loop + bounded-length regression test        | [01](./01-core-math.md) #1         | ✅     | `b032e68` |
 | 2 | Escape the 3 unescaped color sinks in `sceneToString()` (+ single `color()` helper) | [04](./04-ssr-and-parity.md) #1    | ✅     | `b28182a` |
-| 3 | Zone gradient: edge-aware top stop when `domainY[1]` equals a boundary              | [01](./01-core-math.md) #2         | ⬜     | —         |
+| 3 | Zone gradient: edge-aware top stop when `domainY[1]` equals a boundary              | [01](./01-core-math.md) #2         | ✅     | `b1f721c` |
 | 4 | Single-pass tick derivation (`ticksForStep`) so the axis bound gets a label         | [01](./01-core-math.md) #3         | ⬜     | —         |
 | 5 | Non-finite sample policy — drop non-finite points, preserve `ScenePoint.index`      | [02](./02-scene-composition.md) #1 | ⬜     | —         |
 
@@ -144,6 +144,13 @@ all four places (`types.ts` JSDoc, `API.md` table, README, `example/index.html` 
   is the chosen level: an allowlist would reject legitimate `color-mix()`/`lab()`/`var()`
   values. `Scene.class` / `cssVar()` / offset precision from the same doc stay in Sprint 3
   task 14.
+- **2026-08-12** — Task 3: the gradient's top stop resolves through a new module-private
+  `zoneColorBelow()` (strict `<`), while exported `zoneColorAt()` keeps its documented
+  "which zone does this sample belong to" contract unchanged. The bottom stop stays on
+  `zoneColorAt()` — already correct by the same `<=` convention — and is now locked down by
+  test rather than left correct by accident. No open questions to resolve for this one.
+  Previews regenerated before/after: byte-identical, so no screenshot re-acceptance needed
+  (the fix only engages when `domainY[1]` lands exactly on a boundary).
 
 ---
 
