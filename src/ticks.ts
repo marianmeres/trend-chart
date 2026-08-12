@@ -42,10 +42,13 @@ export function niceDomain(
  * (or a step tiny relative to the span) growing the output without bound. */
 const MAX_TICKS = 1000;
 
-/** "Nice numbers" y ticks: round values at round intervals covering the domain.
- * At most 1000 values are returned. */
-export function niceTicks(domain: [number, number], targetCount = 5): number[] {
-	const [min, max, step] = niceDomain(domain, targetCount);
+/** Tick values spaced by `step` covering `[min, max]` — the companion to the
+ * triple `niceDomain()` returns, so a domain and its ticks can be derived from
+ * a single pass instead of two that may disagree on the step.
+ *
+ * `min` is expected to sit on the step lattice (as `niceDomain`'s does); ticks
+ * are generated upward from it. Output is deduped and capped at 1000 values. */
+export function ticksForStep(min: number, max: number, step: number): number[] {
 	if (!step || !Number.isFinite(step)) return [min];
 	// index-based, never accumulated: `min + step` can equal `min` when the step
 	// falls below the float resolution of the domain's magnitude (e.g. a span of
@@ -54,9 +57,17 @@ export function niceTicks(domain: [number, number], targetCount = 5): number[] {
 	if (!Number.isFinite(count) || count < 0) return [min];
 	const out: number[] = [];
 	for (let i = 0; i <= Math.min(count, MAX_TICKS); i++) {
-		out.push(snap(min + i * step, step));
+		// same magnitude case: consecutive indices can snap to the same value
+		const v = snap(min + i * step, step);
+		if (out[out.length - 1] !== v) out.push(v);
 	}
 	return out;
+}
+
+/** "Nice numbers" y ticks: round values at round intervals covering the domain.
+ * At most 1000 values are returned. */
+export function niceTicks(domain: [number, number], targetCount = 5): number[] {
+	return ticksForStep(...niceDomain(domain, targetCount));
 }
 
 /** Evenly spaced values across a domain, endpoints included. */

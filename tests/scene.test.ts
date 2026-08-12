@@ -42,6 +42,58 @@ Deno.test("axes config: labels, gridlines, nice y domain", () => {
 	assert(s.plot.x >= 40);
 });
 
+Deno.test("y ticks and y domain come from one niceDomain pass — the bound is labeled", () => {
+	// [0, 105] expands to [0, 120] at step 20; a second niceDomain pass over the
+	// expanded domain used to pick step 50, labeling only 0/50/100 and leaving the
+	// top sixth of the axis blank
+	const s = computeScene(Array.from({ length: 22 }, (_, i) => i * 5), {}, ctx);
+	assertEquals(s.domainY, [0, 120]);
+	assertEquals(s.yLabels.map((l) => l.text), [
+		"0",
+		"20",
+		"40",
+		"60",
+		"80",
+		"100",
+		"120",
+	]);
+	// symmetric for a negative range: the bottom bound gets a label too
+	const n = computeScene(
+		Array.from({ length: 22 }, (_, i) => -105 + i * 5),
+		{},
+		ctx,
+	);
+	assertEquals(n.domainY, [-120, 0]);
+	assertEquals(n.yLabels[0].text, "-120");
+});
+
+Deno.test("every y domain bound is labeled and the ticks are evenly spaced", () => {
+	for (let m = 1; m <= 400; m++) {
+		const s = computeScene([0, m], {}, ctx);
+		const vals = s.yLabels.map((l) => Number(l.text));
+		assertEquals(vals[0], s.domainY[0], `[0, ${m}] lower bound unlabeled`);
+		assertEquals(
+			vals[vals.length - 1],
+			s.domainY[1],
+			`[0, ${m}] upper bound unlabeled`,
+		);
+		// uniform lattice
+		const step = vals[1] - vals[0];
+		for (let i = 1; i < vals.length; i++) {
+			assert(
+				Math.abs(vals[i] - vals[i - 1] - step) < step * 1e-9,
+				`[0, ${m}] non-uniform tick spacing: ${vals}`,
+			);
+		}
+	}
+});
+
+Deno.test("explicit domainY array still derives its own ticks", () => {
+	const s = computeScene([1, 2, 3], { domainY: [0, 100] }, ctx);
+	assertEquals(s.domainY, [0, 100]);
+	assertEquals(s.yLabels.map((l) => Number(l.text)), [0, 20, 40, 60, 80, 100]);
+});
+
 Deno.test("smooth + endDot", () => {
 	const s = computeScene([1, 2, 3], { smooth: true, endDot: true }, ctx);
 	assert(s.linePath.includes("C "));

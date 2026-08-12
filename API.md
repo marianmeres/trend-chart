@@ -97,6 +97,7 @@ The internals are exported for advanced use (custom renderers, testing):
 | `visibleSlice(points, domainX, overscan?)`    | Slice a dataset to the visible window (+1 overscan point per side).                                                                     |
 | `niceTicks(domain, targetCount?)`             | "Nice numbers" tick values (1/2/5 × 10ⁿ steps).                                                                                         |
 | `niceDomain(domain, targetCount?)`            | Expand a domain outward to nice bounds; returns `[min, max, step]`.                                                                     |
+| `ticksForStep(min, max, step)`                | Ticks at a given step covering `[min, max]` — companion to `niceDomain`'s triple.                                                       |
 | `evenTicks(domain, count)`                    | Evenly spaced values, endpoints included.                                                                                               |
 | `sampleTicks(samples, count)`                 | ~`count` evenly index-spaced real sample values (default x ticks).                                                                      |
 | `resolveXTicks(domain, plotWidth, option?)`   | Resolve an `xTicks` option to concrete values.                                                                                          |

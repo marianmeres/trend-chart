@@ -16,7 +16,13 @@ import {
 	scaleY,
 } from "./scale.ts";
 import { buildAreaPath, buildLinePath, visibleSlice } from "./path.ts";
-import { niceDomain, niceTicks, resolveXTicks, sampleTicks } from "./ticks.ts";
+import {
+	niceDomain,
+	niceTicks,
+	resolveXTicks,
+	sampleTicks,
+	ticksForStep,
+} from "./ticks.ts";
 import { zoneBands, zoneGradientStops } from "./zones.ts";
 
 /** Sizing/identity context the caller (DOM chart or string renderer) provides. */
@@ -95,13 +101,19 @@ export function computeScene(
 	const { points: slice, startIndex } = visibleSlice(points, domainX);
 
 	let domainY: [number, number];
+	// the `[min, max, step]` triple the y domain was derived from, kept in scope so
+	// the ticks land on the very same lattice. Re-deriving them with a second
+	// `niceDomain()` pass over the already-expanded domain can pick a coarser step
+	// whose ticks miss the bound the chart expanded to, leaving it unlabeled.
+	let yNice: [number, number, number] | null = null;
 	const domainYOpt = options.domainY ?? (options.zones ? "full" : "auto");
 	if (Array.isArray(domainYOpt)) {
 		domainY = domainYOpt;
 	} else {
 		const raw = dataRangeY(domainYOpt === "full" ? points : slice);
 		if (yAxis || grid) {
-			const [min, max] = niceDomain(raw, yTickCount);
+			const [min, max, step] = niceDomain(raw, yTickCount);
+			yNice = [min, max, step];
 			domainY = [Math.min(min, raw[0]), Math.max(max, raw[1])];
 		} else {
 			// axis-less (sparkline): hug the data, tiny relative pad
@@ -166,7 +178,12 @@ export function computeScene(
 	}
 
 	// --- axes / grid -------------------------------------------------------
-	const yTicks = yAxis || grid ? niceTicks(domainY, yTickCount) : [];
+	// explicit `domainY` arrays have no pass-1 step, so they still go through niceTicks
+	const yTicks = yAxis || grid
+		? (yNice && yNice[2]
+			? ticksForStep(yNice[0], yNice[1], yNice[2])
+			: niceTicks(domainY, yTickCount))
+		: [];
 	const inPlotY = yTicks.filter((v) => v >= domainY[0] && v <= domainY[1]);
 	const formatY = options.formatY ?? String;
 	const formatX = options.formatX ?? String;
