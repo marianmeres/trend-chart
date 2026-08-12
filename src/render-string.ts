@@ -35,18 +35,24 @@ function gradientMarkup(g: SceneGradient): string {
 		.map((s) => {
 			const op = s.opacity === undefined ? "" : `;stop-opacity:${s.opacity}`;
 			return `<stop offset="${n(s.offset)}" style="stop-color:${
-				esc(s.color)
+				esc(
+					s.color,
+				)
 			}${op}"/>`;
 		})
 		.join("");
-	return `<linearGradient id="${g.id}" gradientUnits="userSpaceOnUse" ` +
-		`x1="0" y1="${n(g.y1)}" x2="0" y2="${n(g.y2)}">${stops}</linearGradient>`;
+	return (
+		`<linearGradient id="${g.id}" gradientUnits="userSpaceOnUse" ` +
+		`x1="0" y1="${n(g.y1)}" x2="0" y2="${n(g.y2)}">${stops}</linearGradient>`
+	);
 }
 
 /** `<text>` element for a positioned scene label. */
 function textMarkup(t: SceneText, style: string): string {
-	return `<text x="${n(t.x)}" y="${n(t.y)}" text-anchor="${t.anchor}" ` +
-		`style="${style}">${esc(t.text)}</text>`;
+	return (
+		`<text x="${n(t.x)}" y="${n(t.y)}" text-anchor="${t.anchor}" ` +
+		`style="${style}">${esc(t.text)}</text>`
+	);
 }
 
 /** Serialize a computed {@link Scene} to static SVG markup. */
@@ -81,15 +87,19 @@ export function sceneToString(scene: Scene): string {
 			out.push(
 				`<rect x="${n(b.x)}" y="${n(b.y)}" width="${n(b.width)}" ` +
 					`height="${n(b.height)}" style="fill:${
-						esc(b.color)
+						esc(
+							b.color,
+						)
 					};opacity:${b.opacity}"/>`,
 			);
 			if (b.label) {
-				out.push(textMarkup(
-					b.label,
-					`fill:${esc(b.color)};opacity:0.8;` +
-						`font-family:${FONT_FAMILY};font-size:${scene.fontSize}px`,
-				));
+				out.push(
+					textMarkup(
+						b.label,
+						`fill:${esc(b.color)};opacity:0.8;` +
+							`font-family:${FONT_FAMILY};font-size:${scene.fontSize}px`,
+					),
+				);
 			}
 		}
 		out.push(`</g>`);
