@@ -59,3 +59,47 @@ Deno.test("zoneBands skips zones outside the domain", () => {
 	assertEquals(bands[0].color, "red");
 	assertEquals(bands[0].height, 100);
 });
+
+Deno.test("zoneGradientStops: domain top edge on a boundary paints the visible zone", () => {
+	// domainY[1] === 50 is a boundary; everything visible is the green zone, and
+	// the corrective hard-stop pair would land at offset 0 and be skipped
+	assertEquals(zoneGradientStops(zones, [0, 50]), [
+		{ offset: 0, color: "green" },
+		{ offset: 1, color: "green" },
+	]);
+});
+
+Deno.test("zoneGradientStops: domain bottom edge on a boundary paints the visible zone", () => {
+	assertEquals(zoneGradientStops(zones, [50, 100]), [
+		{ offset: 0, color: "red" },
+		{ offset: 1, color: "red" },
+	]);
+});
+
+Deno.test("zoneGradientStops: edge stops agree with zoneBands", () => {
+	const three: ZoneConfig = {
+		boundaries: [0, 25, 50, 100],
+		colors: ["a", "b", "c"],
+	};
+	const plot = { x: 0, y: 0, width: 100, height: 100 };
+	for (const domainY of [[0, 50], [25, 50], [0, 25], [0, 100]] as [number, number][]) {
+		const stops = zoneGradientStops(three, domainY);
+		const bands = zoneBands(three, domainY, plot);
+		// bands run bottom (low values) → top; stops run top → bottom
+		assertEquals(stops[0].color, bands.at(-1)?.color, `top @ ${domainY}`);
+		assertEquals(stops.at(-1)?.color, bands[0].color, `bottom @ ${domainY}`);
+	}
+});
+
+Deno.test("zoneGradientStops: boundary-capped domain keeps its interior hard stops", () => {
+	const three: ZoneConfig = {
+		boundaries: [0, 25, 50, 100],
+		colors: ["a", "b", "c"],
+	};
+	assertEquals(zoneGradientStops(three, [0, 50]), [
+		{ offset: 0, color: "b" },
+		{ offset: 0.5, color: "b" },
+		{ offset: 0.5, color: "a" },
+		{ offset: 1, color: "a" },
+	]);
+});
