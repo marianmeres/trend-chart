@@ -27,14 +27,16 @@ Branch: `fix/sprint-1-landmines`
 | 2 | Escape the 3 unescaped color sinks in `sceneToString()` (+ single `color()` helper) | [04](./04-ssr-and-parity.md) #1    | ✅     | `b28182a` |
 | 3 | Zone gradient: edge-aware top stop when `domainY[1]` equals a boundary              | [01](./01-core-math.md) #2         | ✅     | `b1f721c` |
 | 4 | Single-pass tick derivation (`ticksForStep`) so the axis bound gets a label         | [01](./01-core-math.md) #3         | ✅     | `c375a3e` |
-| 5 | Non-finite sample policy — drop non-finite points, preserve `ScenePoint.index`      | [02](./02-scene-composition.md) #1 | ⬜     | —         |
+| 5 | Non-finite sample policy — drop non-finite points, preserve `ScenePoint.index`      | [02](./02-scene-composition.md) #1 | ✅     | `bce53ba` |
 
 **Sequencing:** do 1 before 4 (they share `ticksForStep()`). Task 2 is independent and can land
 in any order. Tasks 1/3/4/5 touch `ticks.ts`/`zones.ts`/`scene.ts` — one branch, one commit each.
 
 **Decisions needed before starting:** ~~task 4 → export `ticksForStep` publicly or keep it
-module-private?~~ (decided: exported). Task 5 → drop non-finite points (option A) or break the
-path into gap segments (option B)?
+module-private?~~ (decided: exported). ~~Task 5 → drop non-finite points (option A) or break the
+path into gap segments (option B)?~~ (decided: option A; B stays in the backlog).
+
+**Sprint 1 complete** — all five landmines fixed, 73 tests passing.
 
 ---
 
@@ -177,6 +179,27 @@ all four places (`types.ts` JSDoc, `API.md` table, README, `example/index.html` 
   byte-identical; previews 1 and 2 are unchanged. That preview was **not** in the defect class
   (its bounds were already labeled), so this is the count-fidelity trade above showing up
   visually. `tmp/screenshots/3.png` deliberately left as-is — it needs owner re-acceptance.
+
+- **2026-08-12** — Task 5: **option A** (drop non-finite samples) as planned; option B (gap
+  sub-paths) stays in the backlog until a real consumer needs gap semantics. Three decisions
+  inside the fix that the source doc left open:
+  1. Filtering happens **before** `dataRangeX`/`visibleSlice`, not on the slice, so `±Infinity`
+     can no longer poison `domainY` in `"full"` mode and non-finite `x` cannot break
+     `visibleSlice`'s ordered scan. The all-non-finite case then falls onto the existing
+     empty-data path for free — no `[Infinity, -Infinity]` guard needed in `scale.ts`.
+  2. Indices are preserved via a `kept position → source index` map returned alongside the
+     filtered array, rather than by copying an `index` onto every sample. The all-finite path
+     therefore stays **allocation-free** (map is `null`, dataset passed through unchanged);
+     copying per frame would have turned per-pan allocation from O(slice) into O(dataset).
+  3. The end dot anchors on the **last plottable** sample, not `points.length - 1`. Its purpose
+     is to distinguish "end of data" from "edge of pan window", and a dropped tail is still the
+     end of the data — punishing it would hide the dot for a trailing sensor dropout.
+
+  Known residue, deliberately out of scope: `TrendChart` computes `getFullRange()`/`resetDomain()`
+  from `dataRangeX(this.#data)` on the **unfiltered** data, so a non-finite `x` at the very first
+  or last sample still yields a non-finite full range. Filtering `#data` there would break
+  `PointEvent.index`'s "index into the full dataset" contract, so it needs its own fix if it ever
+  matters. Previews regenerated: byte-identical.
 
 ---
 
