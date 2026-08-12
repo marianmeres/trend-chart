@@ -26,15 +26,15 @@ Branch: `fix/sprint-1-landmines`
 | 1 | `niceTicks()` terminates — index-based loop + bounded-length regression test        | [01](./01-core-math.md) #1         | ✅     | `b032e68` |
 | 2 | Escape the 3 unescaped color sinks in `sceneToString()` (+ single `color()` helper) | [04](./04-ssr-and-parity.md) #1    | ✅     | `b28182a` |
 | 3 | Zone gradient: edge-aware top stop when `domainY[1]` equals a boundary              | [01](./01-core-math.md) #2         | ✅     | `b1f721c` |
-| 4 | Single-pass tick derivation (`ticksForStep`) so the axis bound gets a label         | [01](./01-core-math.md) #3         | ⬜     | —         |
+| 4 | Single-pass tick derivation (`ticksForStep`) so the axis bound gets a label         | [01](./01-core-math.md) #3         | ✅     | `c375a3e` |
 | 5 | Non-finite sample policy — drop non-finite points, preserve `ScenePoint.index`      | [02](./02-scene-composition.md) #1 | ⬜     | —         |
 
 **Sequencing:** do 1 before 4 (they share `ticksForStep()`). Task 2 is independent and can land
 in any order. Tasks 1/3/4/5 touch `ticks.ts`/`zones.ts`/`scene.ts` — one branch, one commit each.
 
-**Decisions needed before starting:** task 4 → export `ticksForStep` publicly or keep it
-module-private? Task 5 → drop non-finite points (option A) or break the path into gap segments
-(option B)?
+**Decisions needed before starting:** ~~task 4 → export `ticksForStep` publicly or keep it
+module-private?~~ (decided: exported). Task 5 → drop non-finite points (option A) or break the
+path into gap segments (option B)?
 
 ---
 
@@ -113,13 +113,14 @@ all four places (`types.ts` JSDoc, `API.md` table, README, `example/index.html` 
 
 ## Backlog (not scheduled)
 
-| Task                                                            | Source                                    | Status | Note                                                           |
-| --------------------------------------------------------------- | ----------------------------------------- | ------ | -------------------------------------------------------------- |
-| Non-finite samples as _gap segments_ rather than dropped points | [02](./02-scene-composition.md) #1 opt. B | ⬜     | Follow-up to task 5 if gap semantics matter to a real consumer |
-| Dev-only DOM dependency to test `TrendChart` directly           | [06](./06-tests-and-tooling.md) open q.   | ⬜     | Would cover the 6 `trend-chart.ts` findings properly           |
-| Per-zone coloring for markers / hover dot / end dot             | [02](./02-scene-composition.md) #7        | ⬜     | Visual improvement beyond task 20's theming fix                |
-| Promote the end-dot ring width into `Scene`                     | [02](./02-scene-composition.md) #4 notes  | ⬜     | Removes a three-way duplicated magic `2`                       |
-| Re-verify the 7 unverified findings from the original review    | [00](./00-overview-and-roadmap.md)        | ⬜     | Capped out of the verification stage; raw output retained      |
+| Task                                                              | Source                                    | Status | Note                                                                               |
+| ----------------------------------------------------------------- | ----------------------------------------- | ------ | ---------------------------------------------------------------------------------- |
+| Non-finite samples as _gap segments_ rather than dropped points   | [02](./02-scene-composition.md) #1 opt. B | ⬜     | Follow-up to task 5 if gap semantics matter to a real consumer                     |
+| Dev-only DOM dependency to test `TrendChart` directly             | [06](./06-tests-and-tooling.md) open q.   | ⬜     | Would cover the 6 `trend-chart.ts` findings properly                               |
+| Per-zone coloring for markers / hover dot / end dot               | [02](./02-scene-composition.md) #7        | ⬜     | Visual improvement beyond task 20's theming fix                                    |
+| Promote the end-dot ring width into `Scene`                       | [02](./02-scene-composition.md) #4 notes  | ⬜     | Removes a three-way duplicated magic `2`                                           |
+| Re-verify the 7 unverified findings from the original review      | [00](./00-overview-and-roadmap.md)        | ⬜     | Capped out of the verification stage; raw output retained                          |
+| Step selection that targets `yTickCount` instead of rounding down | [01](./01-core-math.md) #3 notes          | ⬜     | Would cut task 4's mean tick-count drift; changes `domainY`, so out of scope there |
 
 ---
 
@@ -151,6 +152,31 @@ all four places (`types.ts` JSDoc, `API.md` table, README, `example/index.html` 
   test rather than left correct by accident. No open questions to resolve for this one.
   Previews regenerated before/after: byte-identical, so no screenshot re-acceptance needed
   (the fix only engages when `domainY[1]` lands exactly on a boundary).
+- **2026-08-12** — Task 4: `ticksForStep(min, max, step)` is **exported publicly** (`mod.ts` +
+  `API.md`). `niceDomain()` is already public and returns `[min, max, step]`; without a
+  companion that turns that step into ticks, a consumer building a custom axis has to
+  reimplement the loop and `snap()`. `niceTicks()` is now literally
+  `ticksForStep(...niceDomain(...))`, so the pair documents itself. `ticksForStep` also
+  absorbed the `MAX_TICKS` cap and gained consecutive-value dedupe, so the public entry point
+  is as hard to hang as `niceTicks`.
+- **2026-08-12** — Task 4: `scene.ts` anchors the tick lattice on pass-1's **nice bounds**, not
+  on `domainY`. The two differ only when the `Math.min`/`Math.max` clamps engage, which a sweep
+  of 139k domains hit twice — both in float-resolution-exhausted domains (spans below a ULP at
+  1e15+), where generating from the clamped edge would emit duplicate ticks instead of a nice
+  lattice. The clamped surplus stays unlabeled; `inPlotY` filtering is unchanged.
+- **2026-08-12** — Task 4 measured impact (sweep of 40.2k domains per tick count). Bound left
+  unlabeled: **23.8% → 0%** at the default `yTickCount: 5`, **72.4% → 0%** at 3, 10% → 0% at 8 —
+  substantially worse than the ~5% the source doc estimated, because that estimate sampled only
+  integer `[0, m]` domains. The cost is slightly looser count fidelity: mean `|ticks - target|`
+  rises 0.92 → 1.09 at count 5, since `niceNum()` rounds the step _down_ and a finer step yields
+  more ticks. Judged a good trade — a uniform lattice that always covers the domain beats a
+  count that is occasionally exact. Closing the gap properly means choosing the step by
+  resulting tick count, which would move `domainY`; logged in the backlog instead.
+- **2026-08-12** — Task 4: `tmp/previews/3.svg` changed — 3 gridlines → 5 (`yTickCount: 3`,
+  domain `[20, 60]`, pass-1 step 10 vs pass-2 step 20). Line, fill, end dot and labels are
+  byte-identical; previews 1 and 2 are unchanged. That preview was **not** in the defect class
+  (its bounds were already labeled), so this is the count-fidelity trade above showing up
+  visually. `tmp/screenshots/3.png` deliberately left as-is — it needs owner re-acceptance.
 
 ---
 
