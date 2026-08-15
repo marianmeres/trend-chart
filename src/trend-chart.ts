@@ -532,11 +532,13 @@ export class TrendChart {
 			if (Math.abs(p.px - px) < Math.abs(best.px - px)) best = p;
 		}
 		if (Math.abs(best.px - px) > HOVER_MAX_DISTANCE) return null;
-		return {
-			point: { x: best.x, y: best.y },
-			index: best.index,
-			pixel: { x: best.px, y: best.py },
-		};
+		// the original object from the caller's dataset (not a rebuilt `{x, y}`),
+		// so a `data` payload survives the round trip
+		const point = this.#data[best.index];
+		// only reachable via a stale scene: #render() bails while the container
+		// measures 0, so an update() to a shorter dataset can outdate the indices
+		if (!point) return null;
+		return { point, index: best.index, pixel: { x: best.px, y: best.py } };
 	}
 
 	/** Move/hide the hover dot and notify `onPointHover` — on change only. */

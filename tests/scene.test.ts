@@ -1,5 +1,6 @@
-import { assert, assertEquals } from "@std/assert";
+import { assert, assertEquals, assertStrictEquals } from "@std/assert";
 import { computeScene, normalizeData } from "../src/scene.ts";
+import type { DataPoint } from "../src/types.ts";
 
 const ctx = { width: 300, height: 150, idPrefix: "t" };
 
@@ -7,6 +8,24 @@ Deno.test("normalizeData: number[] shorthand becomes {x: index, y}", () => {
 	assertEquals(normalizeData([5, 7]), [{ x: 0, y: 5 }, { x: 1, y: 7 }]);
 	assertEquals(normalizeData([{ x: 3, y: 4 }]), [{ x: 3, y: 4 }]);
 	assertEquals(normalizeData([]), []);
+});
+
+Deno.test("normalizeData: DataPoint[] passes through untouched — `data` payload, identity", () => {
+	const data: DataPoint[] = [{ x: 0, y: 1, data: { id: "a" } }, { x: 1, y: 2 }];
+	// same array, same objects — the `data` passthrough contract relies on it
+	assertStrictEquals(normalizeData(data), data);
+});
+
+Deno.test("DataPoint.data survives the index round trip, dropped samples included", () => {
+	const data: DataPoint[] = [
+		{ x: 0, y: 1, data: "a" },
+		{ x: 1, y: NaN, data: "dropped" },
+		{ x: 2, y: 3, data: "b" },
+		{ x: 3, y: 4 },
+	];
+	const s = computeScene(data, {}, ctx);
+	// `PointEvent.point` is `data[index]` — the very lookup exercised here
+	assertEquals(s.visible.map((p) => data[p.index].data), ["a", "b", undefined]);
 });
 
 Deno.test("sparkline config: no axes, no grid, has line + fade fill", () => {

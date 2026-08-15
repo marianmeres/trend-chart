@@ -1031,11 +1031,10 @@ class TrendChart {
             if (Math.abs(p.px - px) < Math.abs(best.px - px)) best = p;
         }
         if (Math.abs(best.px - px) > 30) return null;
+        const point = this.#data[best.index];
+        if (!point) return null;
         return {
-            point: {
-                x: best.x,
-                y: best.y
-            },
+            point,
             index: best.index,
             pixel: {
                 x: best.px,

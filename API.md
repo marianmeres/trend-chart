@@ -124,11 +124,19 @@ A plain `number[]` is treated as y-values with their array index as `x`
 interface DataPoint {
 	x: number; // timestamp (ms), index, ... — numeric and non-decreasing
 	y: number;
+	data?: unknown; // opaque passthrough, handed back on every PointEvent
 }
 ```
 
 `x` semantics are the host's business — the chart only needs numbers. Format
 labels via `formatX`/`formatY`.
+
+`data` is the same opaque passthrough as [`Annotation.data`](#annotation): never
+plotted, never inspected, handed back verbatim on every
+[`PointEvent`](#pointevent) as `e.point.data` — attach an id or a whole record
+and render it yourself. It is deliberately not carried into the
+[`Scene`](#scene): `ScenePoint` stays geometry plus `index`, and a custom
+renderer maps `index` back into its own dataset, exactly as with annotations.
 
 **Non-finite samples** (`NaN`, `±Infinity` in `x` or `y`) are dropped: the line
 bridges the gap with a straight segment and the axes fit only the remaining
@@ -193,7 +201,7 @@ configured, `domainY` defaults to `"full"` so bands don't jump while panning.
 
 ```typescript
 interface PointEvent {
-	point: DataPoint;
+	point: DataPoint; // the point as passed in, `data` untouched
 	index: number; // into the full dataset, not the visible slice
 	pixel: { x: number; y: number }; // svg coordinates (tooltip anchoring)
 }

@@ -12,6 +12,10 @@ export interface DataPoint {
 	x: number;
 	/** Value on the y axis. */
 	y: number;
+	/** Opaque passthrough handed back on every {@link PointEvent} — an id, a
+	 * record, a note. Never plotted or inspected by the library, exactly like
+	 * {@link Annotation.data}. */
+	data?: unknown;
 }
 
 /** Accepted input data: `DataPoint[]`, or a plain `number[]` shorthand where
@@ -44,7 +48,8 @@ export interface Padding {
 
 /** Payload for point click/hover callbacks. */
 export interface PointEvent {
-	/** The data point (in data space). */
+	/** The data point as passed in, `data` passthrough included (the `number[]`
+	 * shorthand yields the normalized `{x, y}`). */
 	point: DataPoint;
 	/** Index into the full dataset (not the visible slice). */
 	index: number;

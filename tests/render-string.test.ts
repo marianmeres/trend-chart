@@ -152,6 +152,20 @@ Deno.test("renderToString: annotation label and color are escaped", () => {
 	assertStringIncludes(svg, "a&lt;b&amp;&quot;c");
 });
 
+Deno.test("renderToString: DataPoint.data never reaches the markup", () => {
+	// byte-identical output with and without payloads — `data` is never
+	// inspected, and (being unescaped-by-definition) must never be serialized
+	const opts = { width: 300, height: 100, points: "all" as const };
+	const plain = renderToString([{ x: 0, y: 1 }, { x: 1, y: 2 }], opts);
+	const carrying = renderToString([
+		{ x: 0, y: 1, data: { note: `<script>alert(1)</script>` } },
+		{ x: 1, y: 2, data: "also-here" },
+	], opts);
+	// only the per-call unique def-id prefix may differ
+	const anonymize = (s: string) => s.replace(/tcs-\d+/g, "tcs-X");
+	assertEquals(anonymize(carrying), anonymize(plain));
+});
+
 Deno.test("renderToString: no annotations means no annotation markup at all", () => {
 	const svg = renderToString([1, 2, 3], { width: 300, height: 100 });
 	assert(!svg.includes("trend-chart-annotation"));

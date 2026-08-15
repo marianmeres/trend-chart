@@ -62,8 +62,9 @@ that breaks SSR and testability. New visual features go: compute in `scene.ts`
    momentum panning, canvas renderer.
 7. Interaction boundary — "the lib says where and fires when; the host says
    what". Points and annotations both ship geometry + pixel coords + callbacks;
-   the host renders the note/tooltip. `Annotation.data` is opaque passthrough:
-   never inspect it. Growing annotations into a note-rendering layer (popovers,
+   the host renders the note/tooltip. `Annotation.data` and `DataPoint.data` are
+   opaque passthrough: never inspect (or serialize) either. Growing annotations
+   into a note-rendering layer (popovers,
    rich text, flip positioning) is how tooltips creep back in via rule 6.
 
 ## Before Making Changes

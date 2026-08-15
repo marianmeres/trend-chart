@@ -403,7 +403,9 @@
 				<h2>Interactive chart</h2>
 				<p class="note">
 					Drag to pan · wheel or pinch to zoom · hover for the nearest point ·
-					click one. Every control below maps to a single option.
+					click one. Every control below maps to a single option. On
+					<b>CPU load</b>, the spike samples carry a per-point <code>data</code>
+					payload — hover one and the readout picks it up.
 				</p>
 
 				<div class="card">
@@ -692,15 +694,29 @@
 
 				cpu: (() => {
 					const r = mulberry32(23);
+					// Per-point metadata: `DataPoint.data` is the same opaque passthrough
+					// as the annotation `data` above — never plotted, never inspected,
+					// just handed back on hover/click. Only the spike samples carry one.
+					const CAUSES = [
+						"spike: cron backup kicked in",
+						"spike: GC pause on worker-3",
+						"spike: search reindex job",
+						"spike: log rotation",
+					];
+					let cause = 0;
 					return {
 						label: "CPU load",
 						unit: "",
 						ariaLabel: "CPU load over 25 minutes",
-						data: series(300, 5_000, CPU_T0, (i) => {
-							const spike = r() > 0.94 ? 45 : 0;
-							return Math.min(100, Math.max(2, Math.round(
-								32 + Math.sin(i / 26) * 18 + r() * 12 + spike,
+						data: Array.from({ length: 300 }, (_, i) => {
+							const spike = r() > 0.94;
+							const y = Math.min(100, Math.max(2, Math.round(
+								32 + Math.sin(i / 26) * 18 + r() * 12 + (spike ? 45 : 0),
 							)));
+							const p = { x: CPU_T0 + i * 5_000, y };
+							return spike
+								? { ...p, data: { text: CAUSES[cause++ % CAUSES.length] } }
+								: p;
 						}),
 						zones: {
 							boundaries: [0, 50, 80, 100],
@@ -798,6 +814,10 @@
 
 			const fmtPoint = (s, p) =>
 				`${s.formatX(p.x)} · ${s.formatY(p.y)}${s.unit ? ` ${s.unit}` : ""}`;
+			// A point's `data` payload, if it carries one — the chart hands the point
+			// back exactly as given; the writing is ours (same division of labour as
+			// the annotation notes below).
+			const fmtPointData = (p) => (p.data ? ` <span>${p.data.text}</span>` : "");
 
 			/* ----------------------------------------------------------------
 			 * THE VIEW — `enhance` adopts the markup that is already in the page
@@ -877,13 +897,14 @@
 				track(reactTo([hovered, seriesId], () => {
 					const e = hovered.get();
 					r.hover.innerHTML = e
-						? `hover <b>${fmtPoint(current(), e.point)}</b>`
+						? `hover <b>${fmtPoint(current(), e.point)}</b>${fmtPointData(e.point)}`
 						: "hover a point…";
 				}));
 				track(reactTo([picked, seriesId], () => {
 					const e = picked.get();
 					r.picked.innerHTML = e
-						? `clicked <b>${fmtPoint(current(), e.point)}</b> <span>(#${e.index})</span>`
+						? `clicked <b>${fmtPoint(current(), e.point)}</b> ` +
+							`<span>(#${e.index})</span>${fmtPointData(e.point)}`
 						: "";
 				}));
 				// The whole point of the API: the chart hands back the annotation it

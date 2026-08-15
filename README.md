@@ -110,6 +110,21 @@ stays yours, exactly as with points: there is still no built-in tooltip.
 Annotations pan and zoom with the series and are dropped when they leave the
 window. In a crowded window a colliding _label_ is dropped; its rule never is.
 
+### Per-point metadata
+
+A sample can carry a `data` payload too — the same opaque-passthrough contract
+as annotations: never plotted, never inspected, handed back verbatim on hover
+and click:
+
+```typescript
+new TrendChart(el, [
+	{ x: t0, y: 84, data: { deviceId: "sensor-2", raw: reading } },
+	// ...
+], {
+	onPointClick: (e) => showDetail(e.point.data),
+});
+```
+
 ### Server-side rendering (Deno, no DOM)
 
 ```typescript
