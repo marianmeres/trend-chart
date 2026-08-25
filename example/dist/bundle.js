@@ -113,20 +113,43 @@ function buildLinear(points) {
     return parts.join(" ");
 }
 function buildSmooth(points, tension) {
+    const last = points.length - 1;
+    const secant = [];
+    for(let i = 0; i < last; i++){
+        const dx = points[i + 1].x - points[i].x;
+        secant.push(dx === 0 ? 0 : (points[i + 1].y - points[i].y) / dx);
+    }
+    const slope = [];
+    for(let i = 0; i <= last; i++){
+        if (i === 0) slope.push(secant[0]);
+        else if (i === last) slope.push(secant[last - 1]);
+        else if (secant[i - 1] * secant[i] <= 0) slope.push(0);
+        else slope.push((secant[i - 1] + secant[i]) / 2);
+    }
+    for(let i = 0; i < last; i++){
+        if (secant[i] === 0) {
+            slope[i] = slope[i + 1] = 0;
+            continue;
+        }
+        const a = slope[i] / secant[i];
+        const b = slope[i + 1] / secant[i];
+        const sum = a * a + b * b;
+        if (sum > 9) {
+            const t = 3 / Math.sqrt(sum);
+            slope[i] = t * a * secant[i];
+            slope[i + 1] = t * b * secant[i];
+        }
+    }
     const parts = [
         `M ${n(points[0].x)} ${n(points[0].y)}`
     ];
-    const k = tension / 6;
-    for(let i = 0; i < points.length - 1; i++){
-        const p0 = points[i - 1] ?? points[i];
+    for(let i = 0; i < last; i++){
         const p1 = points[i];
         const p2 = points[i + 1];
-        const p3 = points[i + 2] ?? points[i + 1];
-        const c1x = p1.x + (p2.x - p0.x) * k;
-        const c1y = p1.y + (p2.y - p0.y) * k;
-        const c2x = p2.x - (p3.x - p1.x) * k;
-        const c2y = p2.y - (p3.y - p1.y) * k;
-        parts.push(`C ${n(c1x)} ${n(c1y)}, ${n(c2x)} ${n(c2y)}, ${n(p2.x)} ${n(p2.y)}`);
+        const third = (p2.x - p1.x) / 3;
+        const m1 = secant[i] + (slope[i] - secant[i]) * tension;
+        const m2 = secant[i] + (slope[i + 1] - secant[i]) * tension;
+        parts.push(`C ${n(p1.x + third)} ${n(p1.y + m1 * third)}, ` + `${n(p2.x - third)} ${n(p2.y - m2 * third)}, ${n(p2.x)} ${n(p2.y)}`);
     }
     return parts.join(" ");
 }
@@ -414,6 +437,12 @@ function computeScene(data, options = {}, ctx) {
     const fill = options.fill ?? true;
     const baselineY = plot.y + plot.height;
     const areaPath = fill === false ? "" : buildAreaPath(px, baselineY, smooth);
+    const clip = {
+        x: plot.x,
+        y: plot.y - edge,
+        width: plot.width,
+        height: plot.height + edge * 2
+    };
     const gy = {
         y1: plot.y,
         y2: plot.y + plot.height
@@ -538,6 +567,7 @@ function computeScene(data, options = {}, ctx) {
         width: ctx.width,
         height: ctx.height,
         plot,
+        clip,
         domainX,
         domainY,
         linePath,
@@ -851,11 +881,10 @@ class TrendChart {
         if (scene.ariaLabel) svg.setAttribute("aria-label", scene.ariaLabel);
         else svg.removeAttribute("aria-label");
         this.#title.textContent = scene.ariaLabel ?? "";
-        const plot = scene.plot;
-        this.#clipRect.setAttribute("x", String(plot.x));
-        this.#clipRect.setAttribute("y", String(plot.y));
-        this.#clipRect.setAttribute("width", String(plot.width));
-        this.#clipRect.setAttribute("height", String(plot.height));
+        this.#clipRect.setAttribute("x", String(scene.clip.x));
+        this.#clipRect.setAttribute("y", String(scene.clip.y));
+        this.#clipRect.setAttribute("width", String(scene.clip.width));
+        this.#clipRect.setAttribute("height", String(scene.clip.height));
         this.#fillGrad = this.#syncGradient(this.#fillGrad, scene.fillGradient);
         this.#strokeGrad = this.#syncGradient(this.#strokeGrad, scene.strokeGradient);
         const bandGroups = syncChildren(this.#gBands, "g", scene.bands.length);
@@ -1128,7 +1157,7 @@ function sceneToString(scene) {
     const labelStyle = textStyle(scene);
     out.push(`<svg xmlns="http://www.w3.org/2000/svg" width="${scene.width}" ` + `height="${scene.height}" viewBox="0 0 ${scene.width} ${scene.height}" ` + `class="trend-chart" role="img"` + (scene.ariaLabel ? ` aria-label="${esc(scene.ariaLabel)}"` : "") + `>`);
     if (scene.ariaLabel) out.push(`<title>${esc(scene.ariaLabel)}</title>`);
-    out.push(`<defs><clipPath id="${clipId}"><rect x="${n1(scene.plot.x)}" ` + `y="${n1(scene.plot.y)}" width="${n1(scene.plot.width)}" ` + `height="${n1(scene.plot.height)}"/></clipPath>`);
+    out.push(`<defs><clipPath id="${clipId}"><rect x="${n1(scene.clip.x)}" ` + `y="${n1(scene.clip.y)}" width="${n1(scene.clip.width)}" ` + `height="${n1(scene.clip.height)}"/></clipPath>`);
     if (scene.fillGradient) out.push(gradientMarkup(scene.fillGradient));
     if (scene.strokeGradient) out.push(gradientMarkup(scene.strokeGradient));
     out.push(`</defs>`);

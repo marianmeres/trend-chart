@@ -31,8 +31,9 @@ export function visibleSlice<T extends { x: number }>(
 }
 
 /** Build an open line path. `smooth` is `false` (straight segments), `true`
- * (full Catmull-Rom smoothing) or a `0..1` tension. Returns `""` for fewer
- * than 2 points. */
+ * (full monotone-cubic smoothing) or a `0..1` tension. The smoothed curve never
+ * overshoots a sample, so it stays inside the data's own range. Returns `""` for
+ * fewer than 2 points. */
 export function buildLinePath(
 	points: PxPoint[],
 	smooth: boolean | number = false,
@@ -69,22 +70,60 @@ function buildLinear(points: PxPoint[]): string {
 	return parts.join(" ");
 }
 
-/** Catmull-Rom → cubic Bézier conversion. Control points are derived from the
- * neighbors of each segment; endpoints reuse themselves as phantom neighbors. */
+/** Monotone cubic (Fritsch-Carlson) → cubic Bézier conversion.
+ *
+ * The tangent at each sample is limited so a segment never leaves the range of
+ * the two samples it connects: a peak peaks at its own value instead of bulging
+ * past it. The plain Catmull-Rom this replaced overshot local extrema by as much
+ * as several percent of the domain — invisible mid-chart, but a spike sitting on
+ * a `domainY` bound had its bulge clipped away and came out with a flat top, and
+ * a curve that dips under a floor of 0 shows values the data never had.
+ *
+ * `tension` blends each end tangent between the straight chord (0) and the full
+ * monotone tangent (1); the blend stays inside the monotone region, so no
+ * tension value can reintroduce overshoot. */
 function buildSmooth(points: PxPoint[], tension: number): string {
+	const last = points.length - 1;
+	// secant slope of every interval (dy/dx in pixel space)
+	const secant: number[] = [];
+	for (let i = 0; i < last; i++) {
+		const dx = points[i + 1].x - points[i].x;
+		secant.push(dx === 0 ? 0 : (points[i + 1].y - points[i].y) / dx);
+	}
+	// tangent per sample: mean of the adjacent secants, flattened to 0 wherever
+	// they disagree in sign (a local max/min) so the curve cannot pass the sample
+	const slope: number[] = [];
+	for (let i = 0; i <= last; i++) {
+		if (i === 0) slope.push(secant[0]);
+		else if (i === last) slope.push(secant[last - 1]);
+		else if (secant[i - 1] * secant[i] <= 0) slope.push(0);
+		else slope.push((secant[i - 1] + secant[i]) / 2);
+	}
+	// Fritsch-Carlson: shrink any tangent pair too steep for its interval
+	for (let i = 0; i < last; i++) {
+		if (secant[i] === 0) {
+			slope[i] = slope[i + 1] = 0;
+			continue;
+		}
+		const a = slope[i] / secant[i];
+		const b = slope[i + 1] / secant[i];
+		const sum = a * a + b * b;
+		if (sum > 9) {
+			const t = 3 / Math.sqrt(sum);
+			slope[i] = t * a * secant[i];
+			slope[i + 1] = t * b * secant[i];
+		}
+	}
 	const parts = [`M ${n(points[0].x)} ${n(points[0].y)}`];
-	const k = tension / 6;
-	for (let i = 0; i < points.length - 1; i++) {
-		const p0 = points[i - 1] ?? points[i];
+	for (let i = 0; i < last; i++) {
 		const p1 = points[i];
 		const p2 = points[i + 1];
-		const p3 = points[i + 2] ?? points[i + 1];
-		const c1x = p1.x + (p2.x - p0.x) * k;
-		const c1y = p1.y + (p2.y - p0.y) * k;
-		const c2x = p2.x - (p3.x - p1.x) * k;
-		const c2y = p2.y - (p3.y - p1.y) * k;
+		const third = (p2.x - p1.x) / 3;
+		const m1 = secant[i] + (slope[i] - secant[i]) * tension;
+		const m2 = secant[i] + (slope[i + 1] - secant[i]) * tension;
 		parts.push(
-			`C ${n(c1x)} ${n(c1y)}, ${n(c2x)} ${n(c2y)}, ${n(p2.x)} ${n(p2.y)}`,
+			`C ${n(p1.x + third)} ${n(p1.y + m1 * third)}, ` +
+				`${n(p2.x - third)} ${n(p2.y - m2 * third)}, ${n(p2.x)} ${n(p2.y)}`,
 		);
 	}
 	return parts.join(" ");

@@ -92,7 +92,7 @@ The internals are exported for advanced use (custom renderers, testing):
 | `plotRect(cfg)`                               | Inner plot rectangle for a `ScaleConfig`.                                                                                               |
 | `clampDomainX(domain, full, minSpan?)`        | Clamp a visible window into the data range, preserving span.                                                                            |
 | `dataRangeX/dataRangeY(points)`               | Min/max over a dataset.                                                                                                                 |
-| `buildLinePath(points, smooth?)`              | Pixel points → SVG path `d` (straight or Catmull-Rom smoothed).                                                                         |
+| `buildLinePath(points, smooth?)`              | Pixel points → SVG path `d` (straight or monotone-cubic smoothed).                                                                      |
 | `buildAreaPath(points, baselineY, smooth?)`   | Closed fill-area variant of the above.                                                                                                  |
 | `visibleSlice(points, domainX, overscan?)`    | Slice a dataset to the visible window (+1 overscan point per side).                                                                     |
 | `niceTicks(domain, targetCount?)`             | "Nice numbers" tick values (1/2/5 × 10ⁿ steps).                                                                                         |
@@ -157,7 +157,7 @@ look.
 | `padding`                | `Partial<Padding>`                           | adaptive                        | Plot padding; defaults adapt to axis visibility and line width.                                                                               |
 | `lineColor`              | `string`                                     | `#4a9eed`                       | Stroke color (ignored for the stroke when `zones` set).                                                                                       |
 | `lineWidth`              | `number`                                     | `2`                             | Stroke width in px.                                                                                                                           |
-| `smooth`                 | `boolean \| number`                          | `false`                         | `true` = Catmull-Rom smoothing, number = tension `0..1`, `false` = straight segments.                                                         |
+| `smooth`                 | `boolean \| number`                          | `false`                         | `true` = monotone-cubic smoothing, number = tension `0..1`, `false` = straight segments. The curve never overshoots a sample.                 |
 | `fill`                   | `boolean \| string`                          | `true`                          | Area fill: `true` fades `lineColor` to transparent, string = explicit base color, `false` = none.                                             |
 | `fillOpacity`            | `number`                                     | `0.15`                          | Max fill opacity.                                                                                                                             |
 | `endDot`                 | `boolean \| {r?, color?, ringColor?}`        | `false`                         | Emphasized marker on the dataset's last point (hidden when panned out of view).                                                               |
@@ -276,6 +276,7 @@ interface Scene {
 	width: number;
 	height: number;
 	plot: { x: number; y: number; width: number; height: number };
+	clip: { x: number; y: number; width: number; height: number }; // series clip
 	domainX: [number, number];
 	domainY: [number, number];
 	linePath: string; // svg path `d` ("" for < 2 points)
@@ -299,6 +300,13 @@ interface Scene {
 	idPrefix: string; // unique prefix for gradient/clip-path ids
 }
 ```
+
+Note: `clip` is the rectangle the series (line, area, markers) must be clipped
+to — the plot rect outset vertically by the stroke allowance the padding already
+reserves. Left/right stay flush with the plot, so the pan/zoom window keeps its
+exact edges; the vertical slack is what keeps a point sitting exactly on a
+`domainY` bound from losing half its stroke width to the clip. A custom renderer
+should clip the series to `clip`, not to `plot`.
 
 Note: gridline and label _colors_ are not part of the scene — both renderers
 apply the shared defaults (`#e5e7eb` / `#9ca3af`, wrapped in

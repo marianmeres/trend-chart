@@ -108,7 +108,9 @@ export interface TrendChartOptions {
 	/** Line stroke width in px. Default `2`. */
 	lineWidth?: number;
 	/** Curve smoothing: `false` (default) straight segments, `true` full
-	 * Catmull-Rom smoothing, or a `0..1` tension value. */
+	 * monotone-cubic smoothing, or a `0..1` tension value. The curve never
+	 * overshoots a sample, so a peak stays at its own value (and a chart of
+	 * non-negative data never dips below zero between two points). */
 	smooth?: boolean | number;
 	/** Area fill under the line: `true` (default) fades the line color to
 	 * transparent, `false` disables, a string sets an explicit base color. */
@@ -295,6 +297,12 @@ export interface Scene {
 	height: number;
 	/** Inner plot rectangle (the area between the paddings), in px. */
 	plot: { x: number; y: number; width: number; height: number };
+	/** Clip rectangle for the series (line, area, markers), in px: the plot rect
+	 * outset vertically by the stroke allowance the padding already reserves.
+	 * Left/right stay flush with the plot so the pan/zoom window keeps its exact
+	 * edges; without the vertical slack a point sitting on a domain bound would
+	 * lose half its stroke width to the clip. */
+	clip: { x: number; y: number; width: number; height: number };
 	/** Visible x window this frame was computed for. */
 	domainX: [number, number];
 	/** Resolved y range this frame was computed for. */

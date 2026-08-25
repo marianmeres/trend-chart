@@ -327,3 +327,38 @@ Deno.test("annotations: color defaults are themable, explicit ones pass through"
 	assertEquals(explicit.annotations[0].color, "rebeccapurple");
 	assertEquals(explicit.annotations[0].dash, false);
 });
+
+Deno.test("series clip: outset vertically so a point on a domain bound keeps its stroke", () => {
+	const data = [3, 9, 25, 4, 18, 0, 21, 7, 25, 1];
+	const s = computeScene(data, {
+		xAxis: false,
+		yAxis: false,
+		grid: false,
+		domainY: [0, 25],
+	}, { width: 320, height: 96 });
+
+	// x stays flush with the plot — the clip is the pan/zoom window
+	assertEquals(s.clip.x, s.plot.x);
+	assertEquals(s.clip.width, s.plot.width);
+
+	// vertically it has room for at least half a stroke on both bounds
+	const half = s.lineWidth / 2;
+	const top = Math.min(...s.visible.map((p) => p.py));
+	const bottom = Math.max(...s.visible.map((p) => p.py));
+	assertEquals(top, s.plot.y); // the max sits exactly on the ceiling
+	assertEquals(bottom, s.plot.y + s.plot.height); // and the min on the floor
+	assert(s.clip.y <= top - half);
+	assert(s.clip.y + s.clip.height >= bottom + half);
+});
+
+Deno.test("series clip: outset is symmetric and does not grow with the plot", () => {
+	const s = computeScene([1, 5, 3], { lineWidth: 8 }, ctx);
+	const above = s.plot.y - s.clip.y;
+	const below = (s.clip.y + s.clip.height) - (s.plot.y + s.plot.height);
+	assertEquals(above, below);
+	// half the stroke, at minimum
+	assert(above >= s.lineWidth / 2);
+	// …and no more than the padding already reserves, so it stays in the svg box
+	assert(s.clip.y >= 0);
+	assert(s.clip.y + s.clip.height <= s.height);
+});

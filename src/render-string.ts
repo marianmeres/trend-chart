@@ -77,9 +77,9 @@ export function sceneToString(scene: Scene): string {
 
 	// defs
 	out.push(
-		`<defs><clipPath id="${clipId}"><rect x="${n(scene.plot.x)}" ` +
-			`y="${n(scene.plot.y)}" width="${n(scene.plot.width)}" ` +
-			`height="${n(scene.plot.height)}"/></clipPath>`,
+		`<defs><clipPath id="${clipId}"><rect x="${n(scene.clip.x)}" ` +
+			`y="${n(scene.clip.y)}" width="${n(scene.clip.width)}" ` +
+			`height="${n(scene.clip.height)}"/></clipPath>`,
 	);
 	if (scene.fillGradient) out.push(gradientMarkup(scene.fillGradient));
 	if (scene.strokeGradient) out.push(gradientMarkup(scene.strokeGradient));

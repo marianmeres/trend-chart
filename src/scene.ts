@@ -118,6 +118,9 @@ export function computeScene(
 	const fillOpacity = options.fillOpacity ?? DEFAULTS.fillOpacity;
 	const yTickCount = options.yTickCount ?? DEFAULTS.yTickCount;
 	const pointRadius = options.pointRadius ?? DEFAULTS.pointRadius;
+	// room the series needs outside the plot rect: half a stroke (strokes are
+	// centred on the path) plus slack for a smoothed curve overshooting a bound.
+	// Reserved by the padding below and spent by the series clip (see `clip`).
 	const edge = Math.ceil(lineWidth / 2) + 2;
 
 	const padding = {
@@ -184,6 +187,19 @@ export function computeScene(
 	const fill = options.fill ?? true;
 	const baselineY = plot.y + plot.height;
 	const areaPath = fill === false ? "" : buildAreaPath(px, baselineY, smooth);
+
+	// The series clip is there for the x window — pan/zoom hides the samples
+	// outside it — not to trim the series vertically. Flush with the plot rect it
+	// also halves the stroke of any point sitting exactly on a domain bound (a
+	// rounded peak acquires a flat top), so spend the `edge` the padding reserves:
+	// vertical only, keeping the window's left/right edges exact. Out-of-domain
+	// excursions (an explicit `domainY`) stay clipped, just `edge` px later.
+	const clip = {
+		x: plot.x,
+		y: plot.y - edge,
+		width: plot.width,
+		height: plot.height + edge * 2,
+	};
 
 	// --- gradients --------------------------------------------------------
 	const gy = { y1: plot.y, y2: plot.y + plot.height };
@@ -346,6 +362,7 @@ export function computeScene(
 		width: ctx.width,
 		height: ctx.height,
 		plot,
+		clip,
 		domainX,
 		domainY,
 		linePath,

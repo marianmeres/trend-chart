@@ -1,5 +1,6 @@
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
 import { renderToString } from "../src/render-string.ts";
+import { computeScene } from "../src/scene.ts";
 
 Deno.test("renderToString: self-contained svg markup", () => {
 	const svg = renderToString([3, 5, 4, 8, 6], { width: 300, height: 100 });
@@ -169,4 +170,29 @@ Deno.test("renderToString: DataPoint.data never reaches the markup", () => {
 Deno.test("renderToString: no annotations means no annotation markup at all", () => {
 	const svg = renderToString([1, 2, 3], { width: 300, height: 100 });
 	assert(!svg.includes("trend-chart-annotation"));
+});
+
+Deno.test("renderToString: clipPath rect is the scene clip, not the plot rect", () => {
+	const opts = {
+		width: 320,
+		height: 96,
+		xAxis: false,
+		yAxis: false,
+		grid: false,
+		domainY: [0, 25] as [number, number],
+	};
+	const scene = computeScene([3, 25, 4, 25, 1], opts, {
+		width: opts.width,
+		height: opts.height,
+	});
+	const svg = renderToString([3, 25, 4, 25, 1], opts);
+	const rect = svg.match(/<clipPath[^>]*><rect ([^/]+)\/>/)![1];
+	const attr = (name: string) =>
+		Number(rect.match(new RegExp(`${name}="([^"]+)"`))![1]);
+	assertEquals(attr("x"), scene.clip.x);
+	assertEquals(attr("y"), scene.clip.y);
+	assertEquals(attr("width"), scene.clip.width);
+	assertEquals(attr("height"), scene.clip.height);
+	// the peak's stroke fits inside the clip (the reported "flat top" bug)
+	assert(attr("y") <= scene.plot.y - scene.lineWidth / 2);
 });

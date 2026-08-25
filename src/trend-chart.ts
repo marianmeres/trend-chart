@@ -291,11 +291,10 @@ export class TrendChart {
 		else svg.removeAttribute("aria-label");
 		this.#title.textContent = scene.ariaLabel ?? "";
 
-		const plot = scene.plot;
-		this.#clipRect.setAttribute("x", String(plot.x));
-		this.#clipRect.setAttribute("y", String(plot.y));
-		this.#clipRect.setAttribute("width", String(plot.width));
-		this.#clipRect.setAttribute("height", String(plot.height));
+		this.#clipRect.setAttribute("x", String(scene.clip.x));
+		this.#clipRect.setAttribute("y", String(scene.clip.y));
+		this.#clipRect.setAttribute("width", String(scene.clip.width));
+		this.#clipRect.setAttribute("height", String(scene.clip.height));
 
 		this.#fillGrad = this.#syncGradient(this.#fillGrad, scene.fillGradient);
 		this.#strokeGrad = this.#syncGradient(this.#strokeGrad, scene.strokeGradient);
